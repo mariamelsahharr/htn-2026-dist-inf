@@ -1,0 +1,11 @@
+---
+- name: Download test model on root
+  hosts: root
+
+  tasks:
+    - name: Download Qwen3 0.6B Q40
+      command:
+        cmd: python3 launch.py qwen3_0.6b_q40 -skip-run -y
+        chdir: /home/pi/distributed-llama
+      args:
+        creates: /home/pi/distributed-llama/models/qwen3_0.6b_q40/dllama_model_qwen3_0.6b_q40.m

@@ -2,3 +2,13 @@
 .venv/
 .env
 .venv/
+cluster/inventory.ini
+**/models/
+*.gguf
+*.m
+*.t
+.env
+*.key
+id_rsa
+id_ed25519
+*.o

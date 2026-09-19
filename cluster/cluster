@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WORKERS=(
+  "pi-node-1"
+  "pi-node-2"
+  "pi-node-4"
+)
+
+case "${1:-}" in
+  up)
+    echo "Starting workers..."
+    for host in "${WORKERS[@]}"; do
+      ssh "pi@$host" "sudo systemctl start dllama-worker"
+    done
+
+    sleep 2
+
+    echo "Starting root..."
+    sudo systemctl start dllama-root
+    ;;
+
+  down)
+    echo "Stopping root..."
+    sudo systemctl stop dllama-root || true
+
+    echo "Stopping workers..."
+    for host in "${WORKERS[@]}"; do
+      ssh "pi@$host" "sudo systemctl stop dllama-worker" || true
+    done
+    ;;
+
+  restart)
+    "$0" down
+    sleep 2
+    "$0" up
+    ;;
+
+  status)
+    echo "=== ROOT ==="
+    systemctl --no-pager status dllama-root | head -n 8 || true
+
+    for host in "${WORKERS[@]}"; do
+      echo
+      echo "=== $host ==="
+      ssh "pi@$host" "systemctl --no-pager status dllama-worker | head -n 8" || true
+    done
+    ;;
+
+  *)
+    echo "Usage: $0 {up|down|restart|status}"
+    exit 1
+    ;;
+esac

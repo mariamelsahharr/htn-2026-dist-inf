@@ -1,0 +1,33 @@
+---
+- name: Configure distributed-llama cluster
+  hosts: cluster
+  become: true
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install dependencies
+      apt:
+        name:
+          - git
+          - build-essential
+          - python3
+          - netcat-openbsd
+          - iperf3
+        state: present
+
+    - name: Clone distributed-llama
+      git:
+        repo: https://github.com/b4rtaz/distributed-llama.git
+        dest: /home/pi/distributed-llama
+        version: master
+        update: yes
+      become_user: pi
+
+    - name: Build distributed-llama
+      make:
+        chdir: /home/pi/distributed-llama
+      become_user: pi

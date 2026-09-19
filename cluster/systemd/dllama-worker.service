@@ -1,0 +1,15 @@
+[Unit]
+Description=distributed-llama worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/distributed-llama
+ExecStart=/home/pi/distributed-llama/dllama worker --host 0.0.0.0 --port 9998 --nthreads 4
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
