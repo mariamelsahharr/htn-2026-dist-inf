@@ -138,7 +138,7 @@ and a node losing power shows `down` within ~6 seconds instead of hanging a poll
   --nodes pi-node-1.local,pi-node-2.local,pi-node-3.local,pi-node-4.local \
   --user pi --password-env SSHPW \
   --csv run_$(date +%H%M).csv \
-  --status-url http://pi-node-1.local:9991/status \
+  --status-url http://pi-node-3.local:9991/status \
   --tps-file /tmp/dllama_tps.json
 ```
 
@@ -157,7 +157,7 @@ and a node losing power shows `down` within ~6 seconds instead of hanging a poll
 
 ```bash
 # sanity: does it stream at all
-./loadtest.py --url http://pi-node-1.local:9990/v1/chat/completions -c 1 -n 3
+./loadtest.py --url http://pi-node-3.local:9990/v1/chat/completions -c 1 -n 3
 
 # burst: latency under concurrency
 ./loadtest.py --url ... -c 4 -n 40 --prompt-tokens 300 --max-tokens 150 --out burst.jsonl
