@@ -1,0 +1,6 @@
+# Exact prompts from Person 4's shot list. One per line.
+# Matching is on normalised text of the last user message, so keep these
+# character-identical to what gets typed on stage.
+write a bash one-liner that finds every file over 100MB and sorts by size
+explain what a systemd unit file does in two sentences
+refactor this python function to remove the duplicated error handling
