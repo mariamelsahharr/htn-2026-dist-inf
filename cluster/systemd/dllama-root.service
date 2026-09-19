@@ -14,7 +14,10 @@ ExecStart=/home/pi/distributed-llama/dllama-api \
     --tokenizer /home/pi/distributed-llama/models/qwen3_0.6b_q40/dllama_tokenizer_qwen3_0.6b_q40.t \
     --buffer-float-type q80 \
     --nthreads 4 \
-    --workers pi-node-1.local:9998
+    --workers \
+192.168.50.11:9998 \
+192.168.50.12:9998 \
+192.168.50.14:9998
 
 Restart=on-failure
 RestartSec=2
