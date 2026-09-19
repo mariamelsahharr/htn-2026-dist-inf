@@ -20,7 +20,7 @@ import json
 import sys
 from pathlib import Path
 
-import httpx
+import httpx2 as httpx
 
 
 def cache_key(prompt: str) -> str:

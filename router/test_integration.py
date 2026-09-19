@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 
-import httpx
+import httpx2 as httpx
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -68,6 +68,18 @@ async def _handle(request: Request, which: str):
         return JSONResponse({"error": "upstream is sad"}, status_code=503)
     words = [f"{which}{i}" for i in range(8)]
     if not body.get("stream"):
+        if body.get("tools"):
+            # like dllama-api: tool calls only come back on the blocking path
+            name = body["tools"][0]["function"]["name"]
+            args = json.dumps({"input": "*** patch ***"} if name == "apply_patch" else {"command": ["ls"]})
+            return JSONResponse({
+                "id": "x", "object": "chat.completion", "model": which,
+                "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {
+                    "role": "assistant", "content": None,
+                    "tool_calls": [{"id": "call_fake", "type": "function",
+                                    "function": {"name": name, "arguments": args}}]}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 3},
+            })
         return JSONResponse({
             "id": "x", "object": "chat.completion", "model": which,
             "choices": [{"index": 0, "finish_reason": "stop",
@@ -235,7 +247,8 @@ def main():
                json={"messages": [{"role": "user", "content": "hi"}], "stream": True}, timeout=30)
     check("both upstreams down -> 502, not a hang", r.status_code == 502, str(r.status_code))
 
-    router_app.ST.cache[router_app.cache_key({"messages": [{"role": "user", "content": "demo prompt"}]})] = \
+    router_app.app.state.router.st.cache[
+        router_app.cache_key({"messages": [{"role": "user", "content": "demo prompt"}]})] = \
         "cached demo answer here"
     served, reason, text = stream_text(c, {"messages": [{"role": "user", "content": "Demo   Prompt"}]})
     check("demo cache serves when all else fails",
@@ -255,6 +268,56 @@ def main():
                json={"messages": [{"role": "user", "content": "hi"}]}, timeout=30)
     check("blocking falls back to cloud", r.headers.get("X-Served-By") == "baseten",
           r.headers.get("X-Served-By"))
+    set_mode(local="ok")
+
+    print("\n--- Responses API (Codex) ---")
+    set_mode(local="ok", cloud="ok", status="healthy")
+    time.sleep(1.2)
+
+    def responses_events(body, headers=None):
+        with c.stream("POST", f"http://127.0.0.1:{ROUTER_PORT}/v1/responses",
+                      json={**body, "stream": True}, headers=headers or {}, timeout=60) as r:
+            served = r.headers.get("X-Served-By")
+            evs = []
+            for line in r.iter_lines():
+                if line.startswith("data:"):
+                    evs.append(json.loads(line[5:]))
+            return served, evs
+
+    served, evs = responses_events({"model": "auto", "instructions": "be brief", "input": "hi"})
+    kinds = [e["type"] for e in evs]
+    check("responses: text request served locally", served == "cluster", served)
+    check("responses: created -> deltas -> item.done -> completed",
+          kinds[0] == "response.created" and "response.output_text.delta" in kinds
+          and "response.output_item.done" in kinds and kinds[-1] == "response.completed", str(kinds[:4]))
+    done = next((e for e in evs if e["type"] == "response.output_item.done"), {})
+    check("responses: message item carries the local text",
+          done.get("item", {}).get("content", [{}])[0].get("text", "").startswith("local0"), str(done)[:100])
+
+    served, evs = responses_events({"model": "auto", "input": "list files", "tools": [
+        {"type": "function", "name": "shell", "parameters": {"type": "object", "properties": {}}}]})
+    items = [e["item"] for e in evs if e["type"] == "response.output_item.done"]
+    check("responses: tool request still served by the cluster (blocking path)", served == "cluster", served)
+    check("responses: function_call item with call_id/name/arguments",
+          items and items[0]["type"] == "function_call" and items[0]["call_id"] == "call_fake"
+          and json.loads(items[0]["arguments"]) == {"command": ["ls"]}, str(items)[:120])
+
+    served, evs = responses_events({"model": "auto", "input": "patch it", "tools": [
+        {"type": "custom", "name": "apply_patch", "description": "p", "format": {"type": "grammar", "syntax": "lark", "definition": "x"}}]})
+    items = [e["item"] for e in evs if e["type"] == "response.output_item.done"]
+    check("responses: custom tool comes back as custom_tool_call with raw input",
+          items and items[0]["type"] == "custom_tool_call" and items[0]["input"] == "*** patch ***", str(items)[:120])
+
+    r = c.post(f"http://127.0.0.1:{ROUTER_PORT}/v1/responses",
+               json={"model": "auto", "input": "hi"}, timeout=30)
+    check("responses: non-streaming returns a response object",
+          r.status_code == 200 and r.json()["object"] == "response" and r.json()["output"][0]["type"] == "message",
+          str(r.json())[:100])
+
+    set_mode(local="refuse")
+    served, evs = responses_events({"model": "auto", "input": "hi"})
+    check("responses: local down -> transparent cloud fallback",
+          served == "baseten" and evs[-1]["type"] == "response.completed", f"{served}/{evs[-1]['type'] if evs else None}")
     set_mode(local="ok")
 
     print("\n--- metadata endpoints ---")

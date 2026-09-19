@@ -7,6 +7,10 @@ WORKERS=(
   "pi-node-4"
 )
 
+# dllama-supervisor launches dllama-api itself and handles 4 -> 2 -> 1 failover.
+# ROOT_UNIT=dllama-root ./cluster up   is the one-command rollback to the plain root.
+ROOT_UNIT="${ROOT_UNIT:-dllama-supervisor}"
+
 case "${1:-}" in
   up)
     echo "Starting workers..."
@@ -16,13 +20,13 @@ case "${1:-}" in
 
     sleep 2
 
-    echo "Starting root..."
-    sudo systemctl start dllama-root
+    echo "Starting root ($ROOT_UNIT)..."
+    sudo systemctl start "$ROOT_UNIT"
     ;;
 
   down)
-    echo "Stopping root..."
-    sudo systemctl stop dllama-root || true
+    echo "Stopping root ($ROOT_UNIT)..."
+    sudo systemctl stop "$ROOT_UNIT" || true
 
     echo "Stopping workers..."
     for host in "${WORKERS[@]}"; do
@@ -37,8 +41,13 @@ case "${1:-}" in
     ;;
 
   status)
-    echo "=== ROOT ==="
-    systemctl --no-pager status dllama-root | head -n 8 || true
+    echo "=== ROOT ($ROOT_UNIT) ==="
+    systemctl --no-pager status "$ROOT_UNIT" | head -n 8 || true
+    if [ "$ROOT_UNIT" = "dllama-supervisor" ]; then
+      curl -s -m 2 http://127.0.0.1:9991/status \
+        | python3 -c 'import json,sys; s=json.load(sys.stdin); print("cluster:", s["state"], "-", s["reason"]); print("active:", s["active_workers"] or "root only")' \
+        || echo "supervisor status endpoint not answering"
+    fi
 
     for host in "${WORKERS[@]}"; do
       echo

@@ -7,15 +7,27 @@ under a second and you can put them in the pre-demo checklist.
 
 import pytest
 
-from routing import (BASETEN, CLUSTER, RouterConfig, continuation_body,
-                     estimate_tokens, is_heavy_model, models_payload, route,
-                     strip_heavy)
+from routing import (BASETEN, CLUSTER, RouterConfig, Tier, continuation_body,
+                     estimate_tokens, fallback_chain, is_heavy_model,
+                     models_payload, route, strip_heavy)
 
 CFG = RouterConfig(size_threshold=2048, cloud_available=True,
                    local_model="llama-3.2-3b-instruct",
                    cloud_model="big-70b")
 NO_CLOUD = RouterConfig(size_threshold=2048, cloud_available=False,
                         local_model="llama-3.2-3b-instruct", cloud_model="big-70b")
+
+
+def tiered(**kw):
+    """Baseten plus openai (tool tier) plus gemini, in the default order."""
+    return RouterConfig(size_threshold=2048, cloud_available=True,
+                        local_model="llama-3.2-3b-instruct", cloud_model="big-70b",
+                        tiers={"openai": Tier("openai", "gpt-x", handles_tools=True),
+                               "gemini": Tier("gemini", "gemini-x")},
+                        tool_tier="openai", **kw)
+
+
+TOOLS = [{"type": "function", "function": {"name": "read_file", "parameters": {}}}]
 
 
 def body(text="hello", model=None, max_tokens=None):
@@ -89,6 +101,49 @@ def test_threshold_is_prompt_plus_max_tokens_not_either_alone():
     small = RouterConfig(size_threshold=300, cloud_available=True)
     d = route(body("x" * 400, max_tokens=200), {}, "healthy", small)
     assert d.upstream == BASETEN
+
+
+# ---------------------------------------------------- branch: task complexity
+
+def test_codebase_keyword_escalates():
+    d = route(body("refactor the auth module so errors are not duplicated"), {}, "healthy", CFG)
+    assert d.upstream == BASETEN and d.reason == "complex_task_keyword"
+
+
+def test_keyword_only_counts_in_the_last_user_turn():
+    b = {"messages": [{"role": "user", "content": "please refactor everything"},
+                      {"role": "assistant", "content": "done"},
+                      {"role": "user", "content": "thanks, what time is it"}]}
+    assert route(b, {}, "healthy", CFG).upstream == CLUSTER
+
+
+def test_large_pasted_code_escalates():
+    code = "```python\n" + "x = 1\n" * 200 + "```"
+    d = route(body("fix this: " + code), {}, "healthy", CFG)
+    assert d.upstream == BASETEN and d.reason == "complex_task_code"
+
+
+def test_small_snippet_stays_local():
+    code = "```python\n" + "x = 1\n" * 10 + "```"
+    assert route(body("fix this: " + code), {}, "healthy", CFG).upstream == CLUSTER
+
+
+def test_long_agent_session_escalates():
+    msgs = [{"role": "user" if i % 2 == 0 else "assistant", "content": "ok"} for i in range(14)]
+    d = route({"messages": msgs}, {}, "healthy", CFG)
+    assert d.upstream == BASETEN and d.reason == "complex_task_turns"
+
+
+def test_complexity_thresholds_are_configurable():
+    lax = RouterConfig(cloud_available=True, cloud_model="big-70b",
+                       complex_keywords=(), code_lines_threshold=10_000, max_local_turns=100)
+    b = body("refactor the entire repo from scratch")
+    assert route(b, {}, "healthy", lax).upstream == CLUSTER
+
+
+def test_size_beats_complexity():
+    d = route(body("refactor " + "word " * 3000), {}, "healthy", CFG)
+    assert d.reason == "over_size_threshold"
 
 
 # --------------------------------------------------- branch 3: explicit heavy
@@ -204,3 +259,97 @@ def test_models_payload_lists_local_and_heavy():
 def test_models_payload_omits_cloud_when_unconfigured():
     ids = [m["id"] for m in models_payload(NO_CLOUD)["data"]]
     assert NO_CLOUD.cloud_model not in ids
+
+
+def test_models_payload_lists_every_configured_tier():
+    ids = [m["id"] for m in models_payload(tiered())["data"]]
+    assert "big-70b" in ids and "gpt-x" in ids and "gemini-x" in ids
+
+
+# ------------------------------------------------------------ tiers: tool tier
+
+def test_tools_go_to_the_tool_tier():
+    d = route({**body("hi"), "tools": TOOLS}, {}, "healthy", tiered())
+    assert d.upstream == "openai" and d.reason == "tools_attached"
+    assert d.model_sent == "gpt-x"
+
+
+def test_tools_outrank_cluster_health():
+    d = route({**body("hi"), "tools": TOOLS}, {}, "degraded", tiered())
+    assert d.upstream == "openai"
+
+
+def test_tools_without_a_tool_tier_follow_the_normal_policy():
+    d = route({**body("hi"), "tools": TOOLS}, {}, "healthy", CFG)
+    assert d.upstream == CLUSTER and d.reason == "default_local"
+
+
+def test_tool_tier_that_is_not_configured_is_dropped():
+    cfg = RouterConfig(cloud_available=True, cloud_model="big-70b", tool_tier="openai")
+    assert cfg.tool_tier is None
+
+
+def test_empty_tools_list_is_not_a_tool_request():
+    d = route({**body("hi"), "tools": []}, {}, "healthy", tiered())
+    assert d.upstream == CLUSTER
+
+
+# ---------------------------------------------------------- tiers: force + order
+
+def test_force_header_can_name_any_configured_tier():
+    d = route(body("hi"), {"X-Force-Upstream": "gemini"}, "healthy", tiered())
+    assert d.upstream == "gemini" and d.forced is True
+
+
+def test_force_header_for_unconfigured_tier_is_ignored():
+    d = route(body("hi"), {"X-Force-Upstream": "gemini"}, "healthy", CFG)
+    assert d.upstream == CLUSTER and d.reason == "default_local"
+
+
+def test_cloud_tiers_follow_configured_order_then_extras():
+    cfg = tiered(cloud_order=("gemini", "baseten"))
+    assert cfg.cloud_tiers() == ["gemini", "baseten", "openai"]
+
+
+def test_escalation_uses_the_heavy_tier_even_when_it_is_not_baseten():
+    cfg = tiered(heavy_tier="gemini")
+    d = route(body("word " * 3000), {}, "healthy", cfg)
+    assert d.upstream == "gemini" and d.reason == "over_size_threshold"
+
+
+# --------------------------------------------------------------- fallback chain
+
+def test_cluster_primary_falls_back_through_every_cloud_tier_in_order():
+    d = route(body("hi"), {}, "healthy", tiered())
+    assert fallback_chain(d, "healthy", tiered()) == [CLUSTER, BASETEN, "gemini", "openai"]
+
+
+def test_cloud_primary_falls_back_to_other_clouds_then_cluster():
+    d = route(body("hi"), {"X-Escalate": "1"}, "healthy", tiered())
+    assert fallback_chain(d, "healthy", tiered()) == [BASETEN, "gemini", "openai", CLUSTER]
+
+
+def test_oversized_request_never_falls_back_to_the_cluster():
+    d = route(body("word " * 3000), {}, "healthy", tiered())
+    chain = fallback_chain(d, "healthy", tiered())
+    assert chain[0] == BASETEN and CLUSTER not in chain
+
+
+def test_tool_request_never_falls_back_to_the_cluster():
+    d = route({**body("hi"), "tools": TOOLS}, {}, "healthy", tiered())
+    assert CLUSTER not in fallback_chain(d, "healthy", tiered())
+
+
+def test_unhealthy_cluster_is_not_a_fallback_target():
+    d = route(body("hi"), {}, "restarting", tiered())
+    assert CLUSTER not in fallback_chain(d, "restarting", tiered())
+
+
+def test_forced_upstream_has_no_fallback():
+    d = route(body("hi"), {"X-Force-Upstream": "cluster"}, "healthy", tiered())
+    assert fallback_chain(d, "healthy", tiered()) == [CLUSTER]
+
+
+def test_two_upstream_config_keeps_the_old_chain():
+    d = route(body("hi"), {}, "healthy", CFG)
+    assert fallback_chain(d, "healthy", CFG) == [CLUSTER, BASETEN]

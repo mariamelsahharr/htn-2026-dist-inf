@@ -42,9 +42,20 @@ ansible-playbook -i inventory.ini root-model.yml -u pi
 
 ## Ports
 
-Workers: TCP 9998
+Workers: TCP 9998 (never probe or scan this port, see `supervisor/README.md`)
 
 Root OpenAI-compatible API: TCP 9990
+
+Supervisor status JSON for the router: TCP 9991 (`/status`, `/healthz`, `POST /restart`)
+
+## Failover
+
+`supervisor/supervisor.py` replaces `dllama-root.service` on the root. It pings the
+workers, relaunches `dllama-api` on the largest node set the model allows when one
+dies (derived from the model header; 4 → 2 → 1 for four nodes, 8 → 4 → 2 → 1 for
+eight), folds a returning worker back in, and publishes cluster state on port 9991. Install steps, the status contract, and a laptop rehearsal are in
+`supervisor/README.md`. `~/cluster up|down|status` drives the supervisor unit by
+default; `ROOT_UNIT=dllama-root ~/cluster up` is the rollback.
 
 ## Current known-good topology
 
@@ -85,7 +96,6 @@ curl http://pi-node-3.local:9990/v1/models
 
 1. Move inference nodes to gigabit Ethernet.
 2. Verify 4-node inference.
-3. Add automatic 4 -> 2 -> 1 failover supervisor.
-4. Expose cluster health state to Person 2's router.
-5. Benchmark throughput and thermals.
+3. Install the failover supervisor on the root (`supervisor/README.md`) and rehearse the unplug.
+4. Benchmark throughput and thermals.
 6. Replace Qwen3 0.6B with the intended larger demo model.

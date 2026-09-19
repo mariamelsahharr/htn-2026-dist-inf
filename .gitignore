@@ -12,3 +12,7 @@ cluster/inventory.ini
 id_rsa
 id_ed25519
 *.o
+__pycache__/
+*.pyc
+.pytest_cache/
+router/demo_cache.json

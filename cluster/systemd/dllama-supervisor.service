@@ -1,0 +1,29 @@
+[Unit]
+Description=distributed-llama supervisor (root API with N-node failover)
+After=network-online.target
+Wants=network-online.target
+# The supervisor launches dllama-api itself; the plain root unit must not run alongside it.
+Conflicts=dllama-root.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/distributed-llama
+Environment=PYTHONUNBUFFERED=1
+# Edit --workers to the real hostnames, best-cooled / biggest-RAM first.
+ExecStart=/usr/bin/python3 /home/pi/htn-2026-dist-inf/cluster/supervisor/supervisor.py \
+    --workers pi-node-1.local,pi-node-2.local,pi-node-3.local \
+    --dllama-bin /home/pi/distributed-llama/dllama-api \
+    --model /home/pi/distributed-llama/models/qwen3_0.6b_q40/dllama_model_qwen3_0.6b_q40.m \
+    --tokenizer /home/pi/distributed-llama/models/qwen3_0.6b_q40/dllama_tokenizer_qwen3_0.6b_q40.t \
+    --nthreads 4 \
+    --api-port 9990 \
+    --status-port 9991 \
+    --log-dir /home/pi/logs
+Restart=always
+RestartSec=2
+KillMode=mixed
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
