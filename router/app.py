@@ -38,12 +38,12 @@ def _env(name: str, default: str = "") -> str:
 
 class Settings:
     local_base = _env("LOCAL_BASE_URL", "http://pi-node-1.local:9990").rstrip("/")
-    cloud_base = _env("CLOUD_BASE_URL", "").rstrip("/")
-    cloud_key = _env("CLOUD_API_KEY", "")
+    cloud_base = _env("CLOUD_BASE_URL", "https://inference.baseten.co/v1").rstrip("/")
+    cloud_key = _env("CLOUD_API_KEY", _env("BASETEN_API_KEY", ""))
     status_url = _env("STATUS_URL", "http://pi-node-1.local:9991/status")
 
     local_model = _env("LOCAL_MODEL", "llama-3.2-3b-instruct")
-    cloud_model = _env("CLOUD_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
+    cloud_model = _env("CLOUD_MODEL", "zai-org/GLM-5.3")
 
     size_threshold = int(_env("SIZE_THRESHOLD", "2048"))
     first_token_timeout = float(_env("FIRST_TOKEN_TIMEOUT", "8"))
@@ -67,7 +67,7 @@ S = Settings()
 def build_config() -> RouterConfig:
     return RouterConfig(
         size_threshold=S.size_threshold,
-        cloud_available=bool(S.cloud_base),
+        cloud_available=bool(S.cloud_base and S.cloud_key),
         local_model=S.local_model,
         cloud_model=S.cloud_model,
     )
@@ -299,14 +299,34 @@ async def chat_completions(request: Request):
 
 # ----------------------------------------------------------- blocking variant
 
+def fallback_plan(body: Dict[str, Any], decision: Decision,
+                  cfg: RouterConfig) -> List[Tuple[str, Dict[str, Any]]]:
+    """Primary upstream first, then the other one as a safety net.
+
+    Both directions matter. Cluster -> cloud covers a dead or restarting Pi.
+    Cloud -> cluster covers a Baseten 429 or outage: an escalated request that
+    would otherwise 502 gets served, slowly, by the Pis. A forced upstream is
+    never second-guessed, because that is the point of forcing it.
+    """
+    plan: List[Tuple[str, Dict[str, Any]]] = [(decision.upstream, body)]
+    if decision.forced:
+        return plan
+    if decision.upstream == CLUSTER and cfg.cloud_available:
+        alt = dict(body)
+        alt["model"] = cfg.cloud_model
+        plan.append((BASETEN, alt))
+    elif decision.upstream == BASETEN and ST.cluster_status == "healthy":
+        alt = dict(body)
+        alt["model"] = cfg.local_model
+        plan.append((CLUSTER, alt))
+    return plan
+
+
+
 async def handle_blocking(orig: Dict[str, Any], body: Dict[str, Any],
                           decision: Decision, cfg: RouterConfig):
     t0 = time.time()
-    attempts: List[Tuple[str, Dict[str, Any]]] = [(decision.upstream, body)]
-    if decision.upstream == CLUSTER and cfg.cloud_available and not decision.forced:
-        alt = dict(body)
-        alt["model"] = cfg.cloud_model
-        attempts.append((BASETEN, alt))
+    attempts = fallback_plan(body, decision, cfg)
 
     last_err = ""
     for i, (up, payload) in enumerate(attempts):
@@ -369,11 +389,7 @@ async def handle_stream(orig: Dict[str, Any], body: Dict[str, Any],
     it happened.
     """
     t0 = time.time()
-    plan: List[Tuple[str, Dict[str, Any]]] = [(decision.upstream, body)]
-    if decision.upstream == CLUSTER and cfg.cloud_available and not decision.forced:
-        alt = dict(body)
-        alt["model"] = cfg.cloud_model
-        plan.append((BASETEN, alt))
+    plan = fallback_plan(body, decision, cfg)
 
     gen = buffered = served_by = None
     last_err = ""
