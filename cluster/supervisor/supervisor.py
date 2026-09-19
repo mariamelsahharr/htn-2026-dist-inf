@@ -633,7 +633,7 @@ def serve_status(sup: Supervisor, host: str, port: int) -> ThreadingHTTPServer:
 def build_parser() -> argparse.ArgumentParser:
     d = Config(workers=[])
     ap = argparse.ArgumentParser(description="distributed-llama root supervisor with power-of-two failover")
-    ap.add_argument("--workers", default="pi-node-1.local,pi-node-2.local,pi-node-3.local",
+    ap.add_argument("--workers", default="pi-node-1.local,pi-node-2.local,pi-node-4.local",
                     help="comma-separated host[:port] in priority order; the first ones are kept "
                          "when the set shrinks, so list the best-cooled / biggest-RAM nodes first")
     ap.add_argument("--worker-port", type=int, default=9998)

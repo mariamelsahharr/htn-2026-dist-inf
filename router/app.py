@@ -1,7 +1,7 @@
 """
 app.py - OpenAI-compatible router in front of the Pi cluster and cloud tiers.
 
-    LOCAL   http://pi-node-5.local:9990   (distributed-llama root)
+    LOCAL   http://pi-node-3.local:9990   (distributed-llama root)
     CLOUD   Baseten via CLOUD_*; optional OPENAI_ / GEMINI_ / SNOWFLAKE_ tiers via
             <NAME>_API_KEY, <NAME>_MODEL, <NAME>_BASE_URL. CLOUD_TIER_ORDER sets
             fallback order; TOOL_TIER (off by default) pins tool requests to a tier.
@@ -54,9 +54,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(Path(__file__).with_name(".env")),
                                       extra="ignore", env_ignore_empty=True)
 
-    local_base_url: str = "http://pi-node-5.local:9990"
+    local_base_url: str = "http://pi-node-3.local:9990"
     local_model: str = "llama-3.2-3b-instruct"
-    status_url: str = "http://pi-node-5.local:9991/status"
+    status_url: str = "http://pi-node-3.local:9991/status"
 
     cloud_base_url: str = "https://inference.baseten.co/v1"
     cloud_api_key: str = Field("", validation_alias=AliasChoices("CLOUD_API_KEY", "BASETEN_API_KEY"))
