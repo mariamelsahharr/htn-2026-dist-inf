@@ -81,11 +81,6 @@ class Settings(BaseSettings):
     decision_log: str = "routing_decisions.jsonl"
     cache_file: str = "demo_cache.json"
     demo_fallback: bool = True
-    assume_healthy_if_no_status: bool = True   # bootstrap only; 0 once the supervisor is live
-
-    @property
-    def assume_healthy(self) -> bool:
-        return self.assume_healthy_if_no_status
 
     @property
     def config(self) -> RouterConfig:
@@ -241,10 +236,11 @@ class Router:
         return {"X-Served-By": served_by, "X-Route-Reason": reason, "Cache-Control": "no-cache"}
 
     async def poll_status(self) -> None:
-        """Keep st.cluster_status fresh from the supervisor."""
+        """Keep st.cluster_status fresh from the supervisor; without one, ask the root itself."""
         while True:
             try:
                 r = await self.client.get(self.s.status_url, timeout=2.0)
+                r.raise_for_status()
                 data = r.json()
                 self.st.status_detail = data if isinstance(data, dict) else {}
                 self.st.cluster_status = str(self.st.status_detail.get("state")
@@ -252,8 +248,19 @@ class Router:
                                              or "unknown").lower()
                 self.st.status_last_ok = time.time()
             except Exception:  # noqa: BLE001 - background loop must survive anything
-                self.st.cluster_status = "healthy" if self.s.assume_healthy else "unreachable"
+                self.st.cluster_status = await self.probe_root()
             await asyncio.sleep(self.s.status_interval)
+
+    async def probe_root(self) -> str:
+        """healthy if the root API answers /v1/models. A timeout keeps the previous verdict:
+        dllama-api is single-threaded and simply queues the GET during a generation."""
+        try:
+            r = await self.client.get(self.cfg.local_tier.base_url + "/models", timeout=2.0)
+            return "healthy" if r.status_code == 200 else "unreachable"
+        except httpx2.TimeoutException:
+            return self.st.cluster_status if self.st.cluster_status in ("healthy", "unreachable") else "healthy"
+        except httpx2.HTTPError:
+            return "unreachable"
 
     # ----- upstream calls -------------------------------------------------
 

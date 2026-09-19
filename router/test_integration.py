@@ -44,7 +44,16 @@ async def control(local: str = None, cloud: str = None, status: str = None):
 
 @fake.get("/status")
 async def status():
+    if MODE["status"] == "gone":   # no supervisor at all
+        return JSONResponse({"error": "no supervisor"}, status_code=500)
     return {"state": MODE["status"], "nodes_alive": 4}
+
+
+@fake.get("/local/v1/models")
+async def local_models():
+    if MODE["local"] == "refuse":
+        return JSONResponse({"error": "down"}, status_code=503)
+    return {"object": "list", "data": [{"id": "local-3b", "object": "model"}]}
 
 
 async def _sse(words, model, die_after=None, stall=False):
@@ -218,6 +227,18 @@ def main():
     check("supervisor says degraded -> baseten",
           served == "baseten" and "degraded" in (reason or ""), f"{served}/{reason}")
     set_mode(status="healthy")
+    time.sleep(1.2)
+
+    set_mode(status="gone", local="ok")
+    time.sleep(1.2)
+    served, reason, _ = stream_text(c, {"messages": [{"role": "user", "content": "hi"}]})
+    check("no supervisor but root answers -> still local", served == "cluster", f"{served}/{reason}")
+    set_mode(status="gone", local="refuse")
+    time.sleep(1.2)
+    served, reason, _ = stream_text(c, {"messages": [{"role": "user", "content": "hi"}]})
+    check("no supervisor and root dead -> cloud, no timeout wait",
+          served == "baseten" and reason == "cluster_unreachable", f"{served}/{reason}")
+    set_mode(status="healthy", local="ok")
     time.sleep(1.2)
 
     print("\n--- pre-commit fallback (client sees nothing) ---")

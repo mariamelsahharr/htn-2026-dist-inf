@@ -32,7 +32,9 @@ Extra tiers exist when key and model are set: `OPENAI_API_KEY` + `OPENAI_MODEL`,
 `CLOUD_TIER_ORDER` sets fallback order. `TOOL_TIER=openai` pins tool requests to a
 tier; leave it unset and the cluster tries tool calls itself.
 
-Once the supervisor is live: `ASSUME_HEALTHY_IF_NO_STATUS=0`.
+Cluster health comes from the supervisor's status URL. When that is unreachable the
+router asks the root API directly, so it works before the supervisor exists and
+still notices a dead root afterwards.
 
 ## Codex
 
