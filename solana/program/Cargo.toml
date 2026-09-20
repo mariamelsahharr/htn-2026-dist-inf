@@ -1,0 +1,16 @@
+[package]
+name = "cluster_attest"
+version = "0.1.0"
+edition = "2021"
+description = "On-chain control-plane record for the Pi inference cluster"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+borsh = { version = "1", features = ["derive"] }
+solana-program = "5"
+solana-system-interface = { version = "3", features = ["bincode"] }
+
+[profile.release]
+overflow-checks = true

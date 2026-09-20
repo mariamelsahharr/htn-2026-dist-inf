@@ -11,6 +11,7 @@ No pytest needed. Exits non-zero if anything fails.
 """
 
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -18,6 +19,9 @@ import threading
 import time
 
 import httpx2 as httpx
+
+import attest
+from test_attest import FakeChain
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -338,6 +342,13 @@ def main():
           r.headers.get("X-Served-By"))
     check("blocking body is OpenAI-shaped",
           r.json()["choices"][0]["message"]["content"].startswith("local"))
+    rid = r.headers.get("X-Request-Id", "")
+    last = json.loads(open("/tmp/itest_decisions.jsonl").read().strip().split("\n")[-1])
+    check("every answer gets a request id that the decision log carries",
+          len(rid) == 32 and last.get("request_id") == rid, f"{rid} vs {last.get('request_id')}")
+    check("decision log hashes the finished answer for attestation",
+          last.get("result_sha256") == hashlib.sha256(
+              r.json()["choices"][0]["message"]["content"].encode()).hexdigest(), str(last.get("result_sha256")))
 
     set_mode(local="refuse")
     r = c.post(f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions",
@@ -418,6 +429,24 @@ def main():
     st = c.get(f"http://127.0.0.1:{ROUTER_PORT}/stats").json()
     check("/stats reports pct_local", st.get("pct_local") is not None, json.dumps(st)[:120])
     check("/stats counts fallbacks", sum(st.get("fallbacks", {}).values()) > 0, str(st.get("fallbacks")))
+
+    print("\n--- on-chain attestation wiring ---")
+    check("/stats reports solana off without a keypair", st.get("solana") is None, str(st.get("solana")))
+    rt = router_app.app.state.router
+    chain = FakeChain()
+    rt.attestor = attest.Attestor(chain, rt.fresh_status, rt.records.read, os.devnull)
+    r = c.post(f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions",
+               json={"messages": [{"role": "user", "content": "attest me"}]}, timeout=30)
+    rt.attestor.step()
+    rid = bytes.fromhex(r.headers["X-Request-Id"])
+    check("a served request is committed on chain with its request id and answer hash",
+          chain.sent[-1][0] == 3 and rid in chain.sent[-1]
+          and hashlib.sha256(r.json()["choices"][0]["message"]["content"].encode()).digest() in chain.sent[-1],
+          str(chain.sent[-1][:40]))
+    check("the router's own supervisor view initialized the cluster account and set the worker set first",
+          [d[0] for d in chain.sent[:-1]] == [0, 2], str([d[0] for d in chain.sent]))   # the fake /status lists no workers
+    check("/stats shows the attestation summary", c.get(f"http://127.0.0.1:{ROUTER_PORT}/stats").json()["solana"]["sent"] == 3)
+    rt.attestor = None
 
     lines = open("/tmp/itest_decisions.jsonl").read().strip().split("\n")
     check("decision log written as JSONL", len(lines) > 10, f"{len(lines)} lines")

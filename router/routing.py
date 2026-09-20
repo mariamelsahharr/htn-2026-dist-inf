@@ -128,9 +128,11 @@ class Decision:
     model_requested: str = ""
     model_sent: str = ""
     forced: bool = False
+    request_id: str = ""
 
     def as_log(self) -> dict[str, Any]:
         return {
+            "request_id": self.request_id,
             "routed_to": self.upstream,
             "reason": self.reason,
             "prompt_tokens": self.prompt_tokens,

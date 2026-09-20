@@ -20,9 +20,10 @@ import hashlib
 import json
 import os
 import time
+import uuid
 from collections import Counter
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
@@ -33,6 +34,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+import attest
 from responses import ResponseBuilder, error_body, responses_to_chat
 from routing import (BASETEN, CACHE, CLUSTER, DEFAULT_CLOUD_ORDER, Breaker, Decision,
                      RouterConfig, Tier, cluster_state, continuation_body,
@@ -94,6 +96,11 @@ class Settings(BaseSettings):
     decision_log: str = "routing_decisions.jsonl"
     cache_file: str = "demo_cache.json"
     demo_fallback: bool = True
+    solana_keypair: str = ""                # path to a Devnet keypair; empty = no on-chain attestation
+    solana_rpc_url: str = attest.DEVNET
+    solana_program_id: str = ""             # default: the id cargo build-sbf wrote under solana/program
+    solana_interval: float = 2.0
+    attestations_file: str = "attestations.jsonl"
 
     @property
     def config(self) -> RouterConfig:
@@ -191,6 +198,16 @@ def _finished(line: str) -> bool:
     return bool(obj) and any(c.get("finish_reason") for c in obj.get("choices") or [] if isinstance(c, dict))
 
 
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _answer_text(data: dict[str, Any]) -> str:
+    """What a blocking completion said: its text, or its tool calls when there is no text."""
+    msg = ((data.get("choices") or [{}])[0]).get("message") or {}
+    return msg.get("content") or (json.dumps(msg["tool_calls"], sort_keys=True) if msg.get("tool_calls") else "")
+
+
 def _content_of(line: str) -> str | None:
     """Text delta in an SSE line; "" for a tool-call delta (arrived, no text); None otherwise."""
     obj = _chunk_of(line)
@@ -254,6 +271,8 @@ class Router:
         self.cfg = settings.config
         self.st = State(breaker=Breaker(settings.breaker_failures, settings.breaker_cooldown))
         self.client = client
+        self.records = attest.RecordQueue()
+        self.attestor = self.build_attestor()
         if Path(settings.cache_file).exists():
             try:
                 self.st.cache = json.loads(Path(settings.cache_file).read_text())
@@ -262,11 +281,29 @@ class Router:
 
     # ----- bookkeeping ----------------------------------------------------
 
+    def build_attestor(self) -> attest.Attestor | None:
+        """On-chain attestation is on when a keypair is configured; it never touches the request path."""
+        if not self.s.solana_keypair:
+            return None
+        program_id = self.s.solana_program_id or attest.default_program_id()
+        if not program_id:
+            raise ValueError("SOLANA_KEYPAIR is set but no program id: set SOLANA_PROGRAM_ID or build solana/program")
+        payer = attest.Keypair.from_json(Path(self.s.solana_keypair).expanduser().read_text())
+        chain = attest.Chain(self.s.solana_rpc_url, payer, attest.Pubkey.from_string(program_id))
+        return attest.Attestor(chain, self.fresh_status, self.records.read, self.s.attestations_file)
+
+    def fresh_status(self) -> dict[str, Any] | None:
+        """The last supervisor document, or None once it is older than a few polls."""
+        fresh = time.time() - self.st.status_last_ok < 3 * self.s.status_interval
+        return self.st.status_detail if fresh and self.st.status_detail else None
+
     def log(self, decision: Decision, served_by: str, *, stream: bool, t0: float,
             fallback: bool = False, error: str | None = None, **extra: Any) -> None:
         record = {**decision.as_log(), "served_by": served_by, "stream": stream,
                   "latency_ms": _ms(t0), "fallback": fallback, "error": error or None, **extra,
                   "ts": time.time(), "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())}
+        if self.attestor:
+            self.records.push(record)
         try:
             with open(self.s.decision_log, "a") as fh:
                 fh.write(json.dumps(record) + "\n")
@@ -276,7 +313,8 @@ class Router:
     @staticmethod
     def headers_for(decision: Decision, served_by: str, fallback: bool) -> dict[str, str]:
         reason = "demo_cache" if served_by == CACHE else decision.reason + ("+fallback" if fallback else "")
-        return {"X-Served-By": served_by, "X-Route-Reason": reason, "Cache-Control": "no-cache"}
+        return {"X-Served-By": served_by, "X-Route-Reason": reason, "X-Request-Id": decision.request_id,
+                "Cache-Control": "no-cache"}
 
     async def poll_status(self) -> None:
         """Keep st.cluster_status fresh from the supervisor; without one, ask the root itself."""
@@ -434,7 +472,7 @@ class Router:
     # ----- request paths --------------------------------------------------
 
     async def chat(self, body: dict[str, Any], headers: dict[str, str]):
-        decision = route(body, headers, self.st.cluster_status, self.cfg)
+        decision = replace(route(body, headers, self.st.cluster_status, self.cfg), request_id=uuid.uuid4().hex)
         self.st.counts[(decision.upstream, decision.reason)] += 1
         t0 = time.time()
         if body.get("stream"):
@@ -449,7 +487,8 @@ class Router:
         if fell_back:
             self.st.fallbacks[f"blocking:{last_err[:40]}"] += 1
         self.st.served[up] += 1
-        self.log(decision, up, stream=False, t0=t0, fallback=fell_back, error=last_err)
+        self.log(decision, up, stream=False, t0=t0, fallback=fell_back, error=last_err,
+                 result_sha256=_sha(_answer_text(data)))
         return JSONResponse(data, headers=self.headers_for(decision, up, fell_back))
 
     async def handle_stream(self, body: dict[str, Any], decision: Decision, t0: float):
@@ -493,8 +532,9 @@ class Router:
             async for _is_content, line in gen:
                 yield forward(line)
             yield sse("data: [DONE]")
+            text = "".join(partial)
             self.log(decision, served_by, stream=True, t0=t0, fallback=fallback, error=last_err,
-                     ttft_ms=ttft, gen_chars=sum(len(p) for p in partial))
+                     ttft_ms=ttft, gen_chars=len(text), result_sha256=_sha(text))
         except UPSTREAM_ERRORS as e:
             err, text, recovered = _err(e), "".join(partial), False
             # no continuation onto a forced upstream, or onto an answer that already finished
@@ -520,7 +560,7 @@ class Router:
 
     async def responses(self, body: dict[str, Any], headers: dict[str, str]):
         chat, custom = responses_to_chat(body)
-        decision = route(chat, headers, self.st.cluster_status, self.cfg)
+        decision = replace(route(chat, headers, self.st.cluster_status, self.cfg), request_id=uuid.uuid4().hex)
         self.st.counts[(decision.upstream, decision.reason)] += 1
         t0 = time.time()
         builder = ResponseBuilder(decision.model_sent, custom)
@@ -533,9 +573,10 @@ class Router:
                 return JSONResponse(error_body(f"all upstreams failed: {last_err}"), status_code=502,
                                     headers={"X-Served-By": "none"})
             self.st.served[up] += 1
-            self.log(decision, up, stream=False, t0=t0, fallback=i > 0, error=last_err, api="responses")
             for _ in builder.feed(data):
                 pass
+            self.log(decision, up, stream=False, t0=t0, fallback=i > 0, error=last_err, api="responses",
+                     result_sha256=_sha("".join(builder.text)))
             return JSONResponse(builder.response_object(), headers=self.headers_for(decision, up, i > 0))
 
         i, up, acquired, last_err = await self.first_success(plan, self.acquire)
@@ -562,8 +603,9 @@ class Router:
                         yield ev.encode()
                 for ev in builder.finish():
                     yield ev.encode()
+                text = "".join(builder.text)
                 self.log(decision, up, stream=True, t0=t0, fallback=fell_back, error=last_err,
-                         api="responses", ttft_ms=ttft, gen_chars=len("".join(builder.text)))
+                         api="responses", ttft_ms=ttft, gen_chars=len(text), result_sha256=_sha(text))
             except UPSTREAM_ERRORS as e:
                 for ev in builder.finish(error=_err(e)):
                     yield ev.encode()
@@ -620,6 +662,7 @@ class Router:
             "fallbacks": dict(self.st.fallbacks),
             "cluster_status": self.st.cluster_status,
             "breakers_open_s": self.st.breaker.snapshot(time.time()),
+            "solana": self.attestor.summary() if self.attestor else None,
         }
 
 
@@ -636,9 +679,13 @@ async def lifespan(app: FastAPI):
     router = Router(settings, client)
     app.state.router = router
     task = asyncio.create_task(router.poll_status())
+    if router.attestor:
+        attest.start_thread(router.attestor, settings.solana_interval)
     try:
         yield
     finally:
+        if router.attestor:
+            router.attestor.stop.set()
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task

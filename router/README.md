@@ -8,8 +8,10 @@ POST /v1/responses          Codex (it only speaks the Responses API since Feb 20
 GET  /v1/models  /healthz  /stats
 ```
 
-Every response carries `X-Served-By: cluster|baseten|openai|gemini|snowflake|cache`
-and `X-Route-Reason`. Every decision is appended to `routing_decisions.jsonl`.
+Every response carries `X-Served-By: cluster|baseten|openai|gemini|snowflake|cache`,
+`X-Route-Reason` and `X-Request-Id`. Every decision is appended to
+`routing_decisions.jsonl` with that id and, once an answer finished, `result_sha256`
+of its text; `../solana/attest.py` commits those on chain.
 
 ## Run
 
@@ -50,6 +52,13 @@ both take traffic; `restarting`, `down` and a degraded cluster below
 `MIN_LOCAL_NODES` (default 2, so root-alone goes to cloud) do not. When the status
 URL is unreachable the router asks the root API directly, so it works before the
 supervisor exists and still notices a dead root afterwards.
+
+## Solana
+
+With `SOLANA_KEYPAIR=~/.config/solana/id.json` in `.env` the router also runs the
+on-chain attestor (`attest.py`, program in `../solana`): worker-set changes and
+finished answers are committed to the `cluster_attest` program on Devnet, `/stats`
+shows the account and last signature. Without the keypair nothing changes.
 
 ## Codex
 
