@@ -8,7 +8,7 @@ import { streamChat, type Served } from "@/lib/chat"
 import { useSettings } from "@/lib/settings"
 
 interface Message {
-  id: number
+  id: string
   role: "user" | "assistant"
   text: string
   served?: Served
@@ -16,7 +16,6 @@ interface Message {
   error?: string
 }
 
-let nextId = 1
 
 export function Chat() {
   const { settings } = useSettings()
@@ -25,7 +24,7 @@ export function Chat() {
   const [busy, setBusy] = useState(false)
   const abort = useRef<AbortController | null>(null)
 
-  const patch = (id: number, f: (m: Message) => Message) =>
+  const patch = (id: string, f: (m: Message) => Message) =>
     setMessages((ms) => ms.map((m) => (m.id === id ? f(m) : m)))
 
   async function send() {
@@ -36,8 +35,8 @@ export function Chat() {
       ...messages.filter((m) => !m.error && m.text).map((m) => ({ role: m.role, content: m.text })),
       { role: "user", content: text },
     ]
-    const userId = nextId++
-    const botId = nextId++
+    const userId = crypto.randomUUID()
+    const botId = crypto.randomUUID()
     setMessages((ms) => [...ms, { id: userId, role: "user", text }, { id: botId, role: "assistant", text: "" }])
     setBusy(true)
     abort.current = new AbortController()

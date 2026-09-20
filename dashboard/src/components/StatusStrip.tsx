@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react"
 import { STATE_TONE, fmt, type Stats } from "@/lib/api"
 
 // The front panel: one link light per node, the cluster state, and the figure the
@@ -16,7 +17,7 @@ export function StatusStrip({ stats }: { stats: Stats }) {
     <section aria-label="Cluster front panel" className="border-border grid gap-4 border-y py-4 md:grid-cols-[1fr_auto] md:items-center">
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <span className="flex items-center gap-2">
-          <span className="led" style={{ "--led": tone } as React.CSSProperties} />
+          <span className="led" style={{ "--led": tone } as CSSProperties} />
           <span className="font-medium capitalize">{state}</span>
           {c.nodes_active != null && (
             <span className="text-muted-foreground">
@@ -29,7 +30,7 @@ export function StatusStrip({ stats }: { stats: Stats }) {
           <li className="flex items-center gap-2">
             <span
               className={`led ${rootUp ? "led-live" : ""}`}
-              style={{ "--led": rootUp ? "var(--good)" : "var(--critical)" } as React.CSSProperties}
+              style={{ "--led": rootUp ? "var(--good)" : "var(--critical)" } as CSSProperties}
             />
             <span className="text-sm">root</span>
           </li>
@@ -37,7 +38,7 @@ export function StatusStrip({ stats }: { stats: Stats }) {
             const led = w.alive ? (w.in_set ? "var(--good)" : "var(--warn)") : "var(--critical)"
             return (
               <li key={w.host} className="flex items-center gap-2">
-                <span className={`led ${w.in_set ? "led-live" : ""}`} style={{ "--led": led } as React.CSSProperties} />
+                <span className={`led ${w.in_set ? "led-live" : ""}`} style={{ "--led": led } as CSSProperties} />
                 <span className="text-sm">{w.host.split(".").pop()}</span>
               </li>
             )
