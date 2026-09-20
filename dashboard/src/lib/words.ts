@@ -50,10 +50,21 @@ export function visibleText(text: string): string {
   return open === -1 ? closed : closed.slice(0, open)
 }
 
-// A pasted wall of text is shown by its head; the full text still goes to the router.
+// A pasted wall of text is shown by its head, by characters or by lines, whichever trips
+// first; the full text still goes to the router.
+const SHOWN_CHARS = 320
+const SHOWN_LINES = 8
+
 export function shownText(text: string): string {
-  return text.length > 320 ? `${text.slice(0, 280).trimEnd()}… (${text.length.toLocaleString()} characters)` : text
+  const lines = text.split("\n")
+  if (text.length <= SHOWN_CHARS && lines.length <= SHOWN_LINES) return text
+  const head = text.length > SHOWN_CHARS ? text.slice(0, 280) : lines.slice(0, SHOWN_LINES).join("\n")
+  const count = lines.length > SHOWN_LINES ? `${lines.length.toLocaleString()} lines, ` : ""
+  return `${head.trimEnd()}… (${count}${text.length.toLocaleString()} characters)`
 }
+
+// Fenced code reads better in a monospace face; the bubble decides from the text.
+export const hasCode = (text: string): boolean => text.includes("```")
 
 export const gigahertz = (mhz: number | null | undefined): string => (mhz == null ? "–" : `${(mhz / 1000).toFixed(1)} GHz`)
 export const gigabytes = (mb: number | null | undefined): string => (mb == null ? "–" : `${(mb / 1024).toFixed(1)} GB`)

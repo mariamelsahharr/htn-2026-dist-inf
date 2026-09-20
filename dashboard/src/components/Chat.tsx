@@ -11,7 +11,7 @@ import { recentHistory } from "@/lib/history"
 import { DEMO_PROMPTS } from "@/lib/demo"
 import { useSettings } from "@/lib/settings"
 import { appendMessages, patchMessage, setTranscript, useTranscript, type Message } from "@/lib/transcript"
-import { shownText, visibleText, whyRouted } from "@/lib/words"
+import { hasCode, shownText, visibleText, whyRouted } from "@/lib/words"
 
 const clock = () => performance.now() // read in event handlers only, never during render
 
@@ -39,9 +39,12 @@ function Empty() {
 
 function Bubble({ m }: { m: Message }) {
   if (m.role === "user") {
+    const code = hasCode(m.text)
     return (
       <div className="flex justify-end">
-        <div className="bg-primary text-primary-foreground max-w-[85%] rounded-lg px-3 py-2 text-sm break-words whitespace-pre-wrap">
+        <div
+          className={`bg-primary text-primary-foreground max-w-[85%] rounded-lg px-3 py-2 break-words whitespace-pre-wrap ${code ? "font-mono text-xs" : "text-sm"}`}
+        >
           {shownText(m.text)}
         </div>
       </div>

@@ -39,4 +39,10 @@ describe("shownText", () => {
     expect(shownText(long)).toMatch(/… \(1,000 characters\)$/)
     expect(shownText("short")).toBe("short")
   })
+  it("collapses many short lines too, and says how many", () => {
+    const code = Array.from({ length: 30 }, (_, i) => `x${i} = ${i}`).join("\n")
+    const shown = shownText(code)
+    expect(shown.split("\n")).toHaveLength(8)
+    expect(shown).toMatch(/… \(30 lines, \d+ characters\)$/)
+  })
 })
