@@ -2,13 +2,13 @@ import { useQuery } from "@tanstack/react-query"
 import { getModels, getStats } from "@/lib/api"
 
 export const STATS_INTERVAL_MS = 2000
+export const STATS_KEY = ["stats"] as const
 
 export function useStats() {
   return useQuery({
-    queryKey: ["stats"],
+    queryKey: STATS_KEY,
     queryFn: getStats,
     refetchInterval: STATS_INTERVAL_MS,
-    refetchIntervalInBackground: true,
     staleTime: STATS_INTERVAL_MS,
     retry: false,
   })

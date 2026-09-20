@@ -64,7 +64,7 @@
   --input: #d5ddd8;
   --ring: #d8894a;
   --good: #1f9a63;
-  --warn: #c48a1e;
+  --warn: #9a6612;
   --critical: #c74a2f;
   --chart-1: #199e70;
   --chart-2: #3987e5;
@@ -151,4 +151,39 @@
   .led-live {
     animation: none;
   }
+}
+
+/* Section names are set like silkscreen on a board: small caps, tracked, quiet. */
+.silk {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+/* An upstream's color is data. Text mixes it toward the foreground so it reads on
+   both grounds; fills and borders stay translucent. Set --tier on the element. */
+.tier-text {
+  color: color-mix(in oklab, var(--tier) 72%, var(--foreground));
+}
+.tier-bg {
+  background-color: color-mix(in oklab, var(--tier) 12%, transparent);
+}
+.tier-border {
+  border-color: color-mix(in oklab, var(--tier) 45%, transparent);
+}
+
+/* Big figures: tight, tabular, one weight up. */
+.figure {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }

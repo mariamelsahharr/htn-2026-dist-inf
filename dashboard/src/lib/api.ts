@@ -1,5 +1,8 @@
-// Types for what the router serves. Field names mirror router/app.py (`stats()`) and
+// Types for what the router serves. Field names mirror router/service.py (`stats()`) and
 // cluster/supervisor/status.example.json; everything optional is optional there too.
+
+import type { CSSProperties } from "react"
+import { ROUTER_URL } from "@/lib/config"
 
 export interface Telemetry {
   temp_c: number | null
@@ -10,6 +13,8 @@ export interface Telemetry {
   load1: number | null
   cpu_mhz: number | null
   uptime_s: number | null
+  worker_listening?: boolean | null
+  ts?: number
 }
 
 export interface WorkerStatus {
@@ -18,16 +23,22 @@ export interface WorkerStatus {
   alive: boolean | null
   in_set: boolean
   consecutive_fails: number
+  last_seen?: number | null
+  last_probe?: number | null
   telemetry: Telemetry | null
 }
 
 export interface ClusterStatus {
   state?: string
   reason?: string
+  since?: number
+  state_age_s?: number
   nodes_total?: number
   nodes_active?: number
   min_nodes?: number
   valid_node_counts?: number[]
+  node_counts_source?: string
+  model_header?: Record<string, number>
   active_workers?: string[]
   workers?: WorkerStatus[]
   root?: { model?: string; load_seconds?: number | null; telemetry?: Telemetry | null }
@@ -72,16 +83,29 @@ export interface RecentAnswer {
   ts: number
 }
 
+export interface ChainEvent {
+  t: number
+  kind: string
+  signature: string
+  explorer: string
+  host?: string
+  state?: string
+  active?: string[]
+  served_by?: string
+  result_sha256?: string
+}
+
 export interface SolanaSummary {
   cluster: string
   explorer: string
   initialized: boolean
+  alive?: boolean
   sent: number
   errors: number
   pending_jobs: number
   payer: string
-  last: Record<string, unknown> | null
-  recent: ({ t: number; kind: string; signature: string; explorer: string } & Record<string, unknown>)[]
+  last: ChainEvent | null
+  recent: ChainEvent[]
 }
 
 export interface Stats {
@@ -90,19 +114,20 @@ export interface Stats {
   pct_local: number | null
   pct_by_upstream: Record<string, number>
   tiers: string[]
+  tier_health: Record<string, string>
   by_reason: Record<string, number>
   fallbacks: Record<string, number>
   cluster_status: string
   status_age_s: number | null
+  cluster_waiting?: number
   breakers_open_s: Record<string, number>
   rates: Record<string, RateSummary>
   inflight: Record<string, number>
+  local_prefill_tps_estimate?: number | null
   recent: RecentAnswer[]
   cluster: ClusterStatus
   solana: SolanaSummary | null
 }
-
-import { ROUTER_URL } from "@/lib/config"
 
 async function getJson<T>(path: string): Promise<T> {
   const r = await fetch(`${ROUTER_URL}${path}`, { cache: "no-store" })
@@ -122,17 +147,36 @@ export async function getModels(): Promise<Model[]> {
   return body.data.filter((m) => !m.id.endsWith("-heavy"))
 }
 
-// One color per upstream everywhere on the page; checked for contrast on both grounds.
-export const UPSTREAM_COLOR: Record<string, string> = {
+// One color and one name per upstream, everywhere on the page. Text built from the
+// color goes through .tier-text so it keeps contrast on both grounds.
+export const UPSTREAM_COLOR = {
   cluster: "#199e70",
   baseten: "#3987e5",
   openai: "#d95926",
   gemini: "#c98500",
   snowflake: "#d55181",
   cache: "#8a8a8a",
+} as const
+
+export type Upstream = keyof typeof UPSTREAM_COLOR
+
+export const TIER_LABEL: Record<Upstream, string> = {
+  cluster: "Pis",
+  baseten: "Baseten",
+  openai: "OpenAI",
+  gemini: "Gemini",
+  snowflake: "Snowflake",
+  cache: "cache",
 }
 
-export const colorFor = (upstream: string): string => UPSTREAM_COLOR[upstream] ?? "#8a8a8a"
+export const TIER_ORDER: Upstream[] = ["cluster", "baseten", "openai", "gemini", "snowflake", "cache"]
+
+const isUpstream = (up: string): up is Upstream => up in UPSTREAM_COLOR
+
+export const colorFor = (upstream: string): string => (isUpstream(upstream) ? UPSTREAM_COLOR[upstream] : "#8a8a8a")
+export const tierLabel = (upstream: string): string => (isUpstream(upstream) ? TIER_LABEL[upstream] : upstream)
+export const tierVars = (upstream: string): CSSProperties => ({ "--tier": colorFor(upstream) }) as CSSProperties
+export const tierRank = (upstream: string): number => (isUpstream(upstream) ? TIER_ORDER.indexOf(upstream) : 99)
 
 export const STATE_TONE: Record<string, string> = {
   healthy: "var(--good)",

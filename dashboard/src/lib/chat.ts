@@ -1,5 +1,5 @@
 import OpenAI from "openai"
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions"
+import type { ChatCompletionChunk, ChatCompletionMessageParam } from "openai/resources/chat/completions"
 import { ROUTER_URL } from "@/lib/config"
 
 export interface Served {
@@ -7,6 +7,12 @@ export interface Served {
   reason: string
   requestId: string | null
   continuedBy?: string // set mid-stream when the Pis died and a cloud tier finished the answer
+  continuedAfter?: string // what the router says about where the handover happened
+}
+
+// The router adds one field to the chunk where a fallback took over mid-answer.
+interface PiHiveChunk extends ChatCompletionChunk {
+  pihive?: { continued_by?: string; after?: string }
 }
 
 // The router is OpenAI-compatible, so the browser talks to it with the real SDK.
@@ -16,6 +22,8 @@ const client = new OpenAI({
   apiKey: "dashboard",
   dangerouslyAllowBrowser: true,
 })
+
+export const isAbort = (e: unknown): boolean => e instanceof OpenAI.APIUserAbortError
 
 export async function streamChat(
   model: string,
@@ -33,10 +41,9 @@ export async function streamChat(
     requestId: response.headers.get("x-request-id"),
   }
   onServed(served)
-  for await (const chunk of stream) {
-    const handover = (chunk as { pihive?: { continued_by?: string } }).pihive?.continued_by
-    if (handover) {
-      served = { ...served, continuedBy: handover }
+  for await (const chunk of stream as AsyncIterable<PiHiveChunk>) {
+    if (chunk.pihive?.continued_by) {
+      served = { ...served, continuedBy: chunk.pihive.continued_by, continuedAfter: chunk.pihive.after }
       onServed(served)
     }
     const piece = chunk.choices[0]?.delta?.content

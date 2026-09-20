@@ -1,72 +1,85 @@
-import { fmt, type ClusterStatus, type Telemetry, type WorkerStatus } from "@/lib/api"
+import { Panel } from "@/components/Panel"
+import { colorFor, fmt, type ClusterStatus, type Telemetry, type WorkerStatus } from "@/lib/api"
+import { gigabytes, gigahertz } from "@/lib/words"
 
-// One grid for every node so temperatures sit under temperatures. Columns: name, state,
-// temperature, clock, free memory, load, flags.
-const GRID = "grid grid-cols-[minmax(7rem,1.2fr)_minmax(5rem,1fr)_8rem_5.5rem_6.5rem_4rem_minmax(0,1fr)] items-center gap-x-4"
+// One grid for every node so temperatures sit under temperatures.
+// Columns: name, state, temperature, clock, free memory, load.
+const GRID = "grid grid-cols-[minmax(7rem,1.4fr)_7.5rem_minmax(7.5rem,1fr)_4.5rem_5rem_4.5rem] items-center gap-x-4"
+
+function Thermometer({ c }: { c: number }) {
+  const hot = c >= 80
+  return (
+    <span className="flex items-center gap-2">
+      <span className={`text-sm ${hot ? "text-critical font-medium" : ""}`}>{fmt(c)} °C</span>
+      <span className="bg-muted relative h-1.5 w-14 overflow-hidden rounded-full" aria-hidden="true">
+        <span
+          className="absolute inset-y-0 left-0 rounded-full"
+          style={{ width: `${Math.min(100, c)}%`, backgroundColor: hot ? "var(--critical)" : colorFor("cluster") }}
+        />
+        <span className="absolute inset-y-0 w-px" style={{ left: "80%", backgroundColor: "var(--warn)" }} />
+      </span>
+    </span>
+  )
+}
 
 function Readings({ t }: { t: Telemetry | null | undefined }) {
-  if (!t) {
-    return (
-      <>
-        <span className="text-muted-foreground col-span-5 text-sm">no telemetry</span>
-      </>
-    )
-  }
-  const hot = (t.temp_c ?? 0) >= 80
-  const throttled = t.flags.some((f) => !f.endsWith("_since_boot"))
+  if (!t) return <span className="text-muted-foreground col-span-4 text-sm">no telemetry</span>
   return (
     <>
-      <span className="flex items-center gap-2">
-        <span className={`text-sm ${hot ? "text-critical" : ""}`}>{fmt(t.temp_c)} °C</span>
-        <span className="bg-muted relative h-1.5 w-12 overflow-hidden rounded-full" aria-hidden="true">
-          <span
-            className="absolute inset-y-0 left-0 rounded-full"
-            style={{ width: `${Math.min(100, ((t.temp_c ?? 0) / 100) * 100)}%`, backgroundColor: hot ? "var(--critical)" : "#199e70" }}
-          />
-          <span className="absolute inset-y-0 w-px" style={{ left: "80%", backgroundColor: "var(--warn)" }} />
-        </span>
-      </span>
-      <span className="text-sm">{t.cpu_mhz ?? "–"} MHz</span>
-      <span className="text-muted-foreground text-sm">{t.mem_available_mb ?? "–"} MB free</span>
+      {t.temp_c == null ? <span className="text-muted-foreground text-sm">–</span> : <Thermometer c={t.temp_c} />}
+      <span className="text-sm">{gigahertz(t.cpu_mhz)}</span>
+      <span className="text-muted-foreground text-sm">{gigabytes(t.mem_available_mb)} free</span>
       <span className="text-muted-foreground text-sm">load {fmt(t.load1)}</span>
-      <span className={`truncate text-sm ${throttled ? "text-warn" : "text-muted-foreground"}`}>
-        {throttled ? "throttling now" : t.flags.length > 0 ? "throttled earlier" : ""}
-      </span>
     </>
   )
 }
 
-function stateOf(w: WorkerStatus): string {
-  if (!w.alive) return `unreachable, ${w.consecutive_fails} misses`
-  return w.in_set ? "serving" : "standing by"
+// State plus the one flag that matters: a node throttling right now.
+function State({ text, tone, t }: { text: string; tone: "good" | "warn" | "critical" | "muted"; t?: Telemetry | null }) {
+  const throttling = t?.flags.some((f) => !f.endsWith("_since_boot")) ?? false
+  const color = { good: "text-foreground", warn: "text-warn", critical: "text-critical", muted: "text-muted-foreground" }[tone]
+  return (
+    <span className="flex flex-col text-xs leading-tight">
+      <span className={color}>{text}</span>
+      {throttling && <span className="text-warn">throttling</span>}
+      {!throttling && t?.worker_listening === false && <span className="text-critical">worker not listening</span>}
+    </span>
+  )
+}
+
+function workerState(w: WorkerStatus): { text: string; tone: "good" | "warn" | "critical" | "muted" } {
+  if (!w.alive) return { text: `unreachable, ${w.consecutive_fails} misses`, tone: "critical" }
+  return w.in_set ? { text: "serving", tone: "good" } : { text: "standing by", tone: "warn" }
 }
 
 export function NodesPanel({ cluster }: { cluster: ClusterStatus }) {
   const workers = cluster.workers ?? []
   const model = cluster.root?.model?.split("/").pop()?.replace(/^dllama_model_/, "").replace(/\.m$/, "")
+  const rootDown = cluster.state === "down" || cluster.state === "unreachable"
   return (
-    <section aria-label="Nodes">
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-base font-medium">Nodes</h2>
-        {model && (
-          <span className="text-muted-foreground text-sm">
+    <Panel
+      label="Nodes"
+      aside={
+        model && (
+          <>
             {model}
             {cluster.root?.load_seconds != null ? `, loaded in ${fmt(cluster.root.load_seconds, 0)} s` : ""}
-          </span>
-        )}
-      </div>
+          </>
+        )
+      }
+    >
       {cluster.reason && <p className="text-muted-foreground mb-2 text-sm">{cluster.reason}</p>}
-      <div className="overflow-x-auto">
-        <ul className="divide-border min-w-[50rem] divide-y">
+      <div className="overflow-x-auto" tabIndex={0}>
+        <ul className="divide-border min-w-[38rem] divide-y">
           <li className={`${GRID} py-2`}>
             <span className="text-sm font-medium">root</span>
-            <span className="text-muted-foreground text-xs">serving</span>
+            <State text={rootDown ? "down" : "serving"} tone={rootDown ? "critical" : "good"} t={cluster.root?.telemetry} />
             <Readings t={cluster.root?.telemetry} />
           </li>
           {workers.map((w) => (
             <li key={w.host} className={`${GRID} py-2`}>
               <span className="text-sm font-medium">{w.host}</span>
-              <span className="text-muted-foreground text-xs">{stateOf(w)}</span>
+              <State {...workerState(w)} t={w.telemetry} />
               <Readings t={w.telemetry} />
             </li>
           ))}
@@ -83,14 +96,14 @@ export function NodesPanel({ cluster }: { cluster: ClusterStatus }) {
           {cluster.events
             .slice(-4)
             .reverse()
-            .map((e) => (
-              <li key={`${e.t}-${e.msg}`}>
+            .map((e, i) => (
+              <li key={`${e.t}-${i}`}>
                 <time dateTime={new Date(e.t * 1000).toISOString()}>{new Date(e.t * 1000).toLocaleTimeString()}</time>{" "}
                 {e.msg}
               </li>
             ))}
         </ol>
       )}
-    </section>
+    </Panel>
   )
 }

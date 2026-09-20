@@ -19,15 +19,6 @@ const REASONS: Record<string, string> = {
   cluster_degraded_below_min: "too few Pis",
 }
 
-export const TIER_NAME: Record<string, string> = {
-  cluster: "Pis",
-  baseten: "Baseten",
-  openai: "OpenAI",
-  gemini: "Gemini",
-  snowflake: "Snowflake",
-  cache: "cache",
-}
-
 export function whyRouted(reason: string): string {
   const [base, suffix] = reason.split("+")
   const core = base.replace(/_no_cloud$/, "")
@@ -40,13 +31,29 @@ export function whyRouted(reason: string): string {
 // "pre_commit:UpstreamError: HTTP 403: {\"error\":\"please..." -> "before the first token: HTTP 403"
 export function whyFellBack(key: string): string {
   const [stage, ...rest] = key.split(":")
-  const detail = rest.join(":").replace(/^\s*\w*Error:\s*/, "").trim()
+  const detail = rest.join(":").replace(/^\s*[A-Z][A-Za-z]*:\s*/, "").trim() // drop the exception class
   const STAGE: Record<string, string> = {
     pre_commit: "before the first token",
     blocking: "on a blocking call",
     mid_stream: "mid-answer",
     breaker_open: "paused",
   }
-  const short = detail.split(/[{(]/)[0].trim().slice(0, 48)
+  const short = detail.split(/[{(]/)[0].replace(/[:\s]+$/, "").slice(0, 48)
   return `${STAGE[stage] ?? stage}${short ? `: ${short}` : ""}`
 }
+
+// Reasoning models (Qwen3 on the Pis) stream a <think>…</think> block before the answer.
+// It is kept in the transcript for the next turn but not shown.
+export function visibleText(text: string): string {
+  const closed = text.replace(/<think>[\s\S]*?<\/think>\s*/g, "")
+  const open = closed.indexOf("<think>")
+  return open === -1 ? closed : closed.slice(0, open)
+}
+
+// A pasted wall of text is shown by its head; the full text still goes to the router.
+export function shownText(text: string): string {
+  return text.length > 320 ? `${text.slice(0, 280).trimEnd()}… (${text.length.toLocaleString()} characters)` : text
+}
+
+export const gigahertz = (mhz: number | null | undefined): string => (mhz == null ? "–" : `${(mhz / 1000).toFixed(1)} GHz`)
+export const gigabytes = (mb: number | null | undefined): string => (mb == null ? "–" : `${(mb / 1024).toFixed(1)} GB`)

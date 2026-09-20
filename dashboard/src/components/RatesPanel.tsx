@@ -1,26 +1,25 @@
+import { Panel } from "@/components/Panel"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { UpstreamBadge } from "@/components/UpstreamBadge"
-import { fmt, type Stats } from "@/lib/api"
+import { fmt, tierRank, type Stats } from "@/lib/api"
 import { whyFellBack } from "@/lib/words"
 
-const ORDER = ["cluster", "baseten", "openai", "gemini", "snowflake", "cache"]
-
 export function RatesPanel({ stats }: { stats: Stats }) {
-  const rows = Object.entries(stats.rates).sort(
-    ([a], [b]) => (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99),
-  )
+  const rows = Object.entries(stats.rates).sort(([a], [b]) => tierRank(a) - tierRank(b))
+  const fallbacks = Object.entries(stats.fallbacks)
   return (
-    <section aria-label="Throughput by upstream">
-      <div className="mb-2 flex items-baseline justify-between">
-        <h2 className="text-base font-medium">Throughput</h2>
-        <span className="text-muted-foreground text-sm">
+    <Panel
+      label="Throughput"
+      aside={
+        <>
           {stats.total_requests} answered, {stats.pct_local ?? 0}% on the Pis
-        </span>
-      </div>
+        </>
+      }
+    >
       {rows.length === 0 ? (
         <p className="text-muted-foreground text-sm">No answers yet. The first message fills this in.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -58,11 +57,11 @@ export function RatesPanel({ stats }: { stats: Stats }) {
           </Table>
         </div>
       )}
-      {Object.keys(stats.fallbacks).length > 0 && (
+      {fallbacks.length > 0 && (
         <p className="text-muted-foreground mt-2 text-xs">
-          Fallbacks: {Object.entries(stats.fallbacks).map(([k, v]) => `${whyFellBack(k)} (${v})`).join("; ")}
+          Fallbacks: {fallbacks.map(([k, v]) => `${whyFellBack(k)} (${v})`).join("; ")}
         </p>
       )}
-    </section>
+    </Panel>
   )
 }

@@ -3,9 +3,11 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
-// Dev: the router runs on :8000; everything under /v1, /stats, /healthz is proxied to it.
+// React Compiler (the native oxc port) memoizes components and hooks at build time, so
+// the source carries no memo/useMemo/useCallback. Dev without VITE_ROUTER_URL proxies
+// the router's paths to :8000.
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react({ compiler: true }), tailwindcss()],
   resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
   server: {
     proxy: {
