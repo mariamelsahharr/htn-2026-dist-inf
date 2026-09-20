@@ -5,6 +5,10 @@ WORKERS=(
   "pi-node-1"
   "pi-node-2"
   "pi-node-4"
+  "pi-node-6"
+  "pi-node-7"
+  "pi-node-8"
+  "pi-node-9"
 )
 
 # dllama-supervisor launches dllama-api itself and handles 4 -> 2 -> 1 failover.

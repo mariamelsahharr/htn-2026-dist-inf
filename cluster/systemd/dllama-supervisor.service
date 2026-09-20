@@ -16,7 +16,7 @@ Nice=-20
 OOMScoreAdjust=-500
 # Wired worker IPs (see dllama-root.service), best-cooled / biggest-RAM first.
 ExecStart=/usr/bin/python3 /home/pi/supervisor.py \
-    --workers 192.168.50.11,192.168.50.12,192.168.50.14 \
+    --workers 192.168.50.11,192.168.50.12,192.168.50.14,192.168.50.16,192.168.50.17,192.168.50.18,192.168.50.19 \
     --dllama-bin /home/pi/distributed-llama/dllama-api \
     --model /home/pi/distributed-llama/models/qwen3_0.6b_q40/dllama_model_qwen3_0.6b_q40.m \
     --tokenizer /home/pi/distributed-llama/models/qwen3_0.6b_q40/dllama_tokenizer_qwen3_0.6b_q40.t \
