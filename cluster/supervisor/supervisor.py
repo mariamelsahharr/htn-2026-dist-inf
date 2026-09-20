@@ -200,11 +200,14 @@ def read_model_header(path: str) -> dict:
 
 
 def valid_node_counts(header: dict, max_nodes: int) -> list[int]:
-    """Counts that divide every sliced dim (nn-core.cpp asserts), up to max_nodes."""
+    """Counts that divide every sliced dim (nn-core.cpp asserts), up to max_nodes, and never
+    more nodes than KV heads: dllama-api aborts with "This version does not support more
+    nodes than the number of KV heads in the model" (Qwen3-30B-A3B has 4, so 8 nodes fail)."""
     dims = [header["n_heads"], header["kv_dim"], header["hidden_dim"], header["vocab_size"]]
     if header.get("moe_hidden_dim"):
         dims.append(header["moe_hidden_dim"])
-    return [n for n in range(1, max_nodes + 1) if all(d % n == 0 for d in dims)]
+    cap = min(max_nodes, header.get("n_kv_heads") or max_nodes)
+    return [n for n in range(1, cap + 1) if all(d % n == 0 for d in dims)]
 
 
 def choose_workers(alive_in_priority: list, valid_counts: list[int] | None = None, min_nodes: int = 1) -> list | None:

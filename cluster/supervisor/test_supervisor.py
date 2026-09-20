@@ -186,14 +186,19 @@ def test_llama_3_2_3b_allows_exactly_1_2_4_8(tmp_path):
     assert valid_node_counts(h, 32) == [1, 2, 4, 8]  # 16 fails on 24 heads
 
 
-def test_qwen3_0_6b_allows_up_to_16(tmp_path):
+def test_qwen3_0_6b_allows_up_to_its_8_kv_heads(tmp_path):
     h = read_model_header(write_model(tmp_path / "m.m", QWEN3_0_6B))
-    assert valid_node_counts(h, 32) == [1, 2, 4, 8, 16]
+    assert valid_node_counts(h, 32) == [1, 2, 4, 8]  # 16 divides every dim but exceeds the KV heads
+
+
+def test_qwen3_30b_a3b_caps_at_its_4_kv_heads(tmp_path):
+    h = read_model_header(write_model(tmp_path / "m.m", {**QWEN3_0_6B, "n_heads": 32, "n_kv_heads": 4}))
+    assert valid_node_counts(h, 8) == [1, 2, 4]  # dllama-api aborts on 8: more nodes than KV heads
 
 
 def test_a_model_divisible_by_three_allows_non_powers_of_two(tmp_path):
     h = read_model_header(write_model(tmp_path / "m.m", THREESY))
-    assert valid_node_counts(h, 8) == [1, 2, 3, 4, 6, 8]
+    assert valid_node_counts(h, 8) == [1, 2, 3, 4, 6]  # 8 divides the dims but exceeds the 6 KV heads
 
 
 def test_supervisor_derives_counts_from_the_model(tmp_path):

@@ -24,7 +24,9 @@ worker_addrs: >-
 # retried with backoff; set dllama_min_nodes to the smallest count whose per-node share fits the
 # 4 GB Pis so a shrunken set never tries to hold weights it cannot (the supervisor reports
 # `down` instead, and the router goes to the cloud).
-dllama_model: qwen3_30b_a3b_q40
+# qwen3_30b_a3b_q40 has 4 KV heads, so dllama refuses more than 4 nodes ("This version does not
+# support more nodes than the number of KV heads"); on 8 nodes use a model with 8 KV heads.
+dllama_model: qwen3_0.6b_q40
 dllama_min_nodes: 1
 # launch.py at 59af889 passes this for the Qwen3 models: caps the KV cache, which otherwise
 # follows the header's seq_len. Applied to both the supervisor's dllama-api and the rollback unit.
