@@ -101,3 +101,17 @@ curl http://pi-node-3.local:9990/v1/models
 3. Install the failover supervisor on the root (`supervisor/README.md`) and rehearse the unplug.
 4. Benchmark throughput and thermals.
 6. Replace Qwen3 0.6B with the intended larger demo model.
+
+## Telemetry agent
+
+Every Pi runs `agent/node_agent.py` (unit `dllama-agent.service`, port 9997): one JSON
+document with CPU temperature, the firmware throttle flags, memory, load and clock,
+read from sysfs and /proc. The supervisor fetches it for each alive worker and for
+itself in the same pass as the liveness ping and puts it under `workers[].telemetry`
+and `root.telemetry` in `/status`, so the router and dashboard see hardware state
+without SSH. A dead worker shows `telemetry: null`. `--telemetry-port 0` turns it off.
+
+```bash
+curl -s http://192.168.50.11:9997/telemetry | python3 -m json.tool
+python3 agent/node_agent.py --once          # on a Pi: print the document and exit
+```

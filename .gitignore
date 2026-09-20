@@ -16,5 +16,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 router/demo_cache.json
+.claude/
+router/routing_decisions.jsonl
 solana/program/target/
 router/attestations.jsonl

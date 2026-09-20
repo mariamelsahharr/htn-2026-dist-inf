@@ -29,8 +29,10 @@
       git:
         repo: https://github.com/b4rtaz/distributed-llama.git
         dest: /home/pi/distributed-llama
-        version: main
-        update: yes
+        version: 59af889  # the commit the supervisor and router were tested against; bump on purpose
+        # no fetch on a node that already has the checkout: the Pis often have no route to
+        # GitHub (hotspot without upstream). To move the pin, run once with `update: yes`.
+        update: no
       become_user: pi
 
     # A bare `make` runs the Makefile's first target, which is `clean`. Plain
@@ -48,6 +50,27 @@
         chdir: /home/pi/distributed-llama
         creates: /home/pi/distributed-llama/dllama-api
       become_user: pi
+
+    - name: Install the telemetry agent (temperature, throttling, memory on :9997)
+      copy:
+        src: agent/node_agent.py
+        dest: /home/pi/node_agent.py
+        owner: pi
+        group: pi
+        mode: "0755"
+
+    - name: Install the agent unit
+      copy:
+        src: systemd/dllama-agent.service
+        dest: /etc/systemd/system/dllama-agent.service
+        mode: "0644"
+
+    - name: Enable and start the agent
+      systemd:
+        name: dllama-agent
+        enabled: yes
+        state: restarted
+        daemon_reload: yes
 
 
 - name: Root SSH key (the supervisor restarts workers over SSH)
@@ -77,6 +100,8 @@
         owner: pi
         group: pi
         mode: "0600"
+      # an unreachable root earlier in the run must not fail the workers; rerun once it is back
+      when: hostvars[groups['root'][0]].root_pubkey is defined
 
     - name: Install the worker unit
       copy:
@@ -113,6 +138,7 @@
       loop:
         - { src: supervisor/supervisor.py, dest: /home/pi/supervisor.py }
         - { src: cluster, dest: /home/pi/cluster }
+      notify: restart supervisor   # a new supervisor.py only takes effect on restart (15 s cluster outage)
 
     - name: Install the root units (dllama-root stays as the rollback, disabled)
       copy:
@@ -122,6 +148,7 @@
       loop:
         - dllama-root.service
         - dllama-supervisor.service
+      notify: restart supervisor
 
     - name: Disable the plain root unit
       systemd:
@@ -136,4 +163,11 @@
         name: dllama-supervisor
         enabled: yes
         state: started
+        daemon_reload: yes
+
+  handlers:
+    - name: restart supervisor
+      systemd:
+        name: dllama-supervisor
+        state: restarted
         daemon_reload: yes

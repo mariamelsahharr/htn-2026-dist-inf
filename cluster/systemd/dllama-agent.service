@@ -1,0 +1,15 @@
+[Unit]
+Description=Pi telemetry agent (temperature, throttling, memory) for the cluster supervisor
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=pi
+ExecStart=/usr/bin/python3 /home/pi/node_agent.py --port 9997
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -3,13 +3,13 @@ test_tools.py - the parts of metrics.py that other components depend on. Run: py
 """
 
 import json
-import os
 import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(__file__))
-import metrics  # noqa: E402
+sys.path.insert(0, str(Path(__file__).parent))
+import metrics
 
-EXAMPLE = json.load(open(os.path.join(os.path.dirname(__file__), "..", "supervisor", "status.example.json")))
+EXAMPLE = json.loads((Path(__file__).parent / ".." / "supervisor" / "status.example.json").read_text())
 
 
 def test_status_contract_parses_state_nodes_and_load_time():

@@ -1,0 +1,154 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* One family, weight contrast only. Every figure sits in tabular numerals. */
+@theme inline {
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-heading: var(--font-sans);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-critical: var(--critical);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+/* Solder-mask greens for the ground, copper for the one accent. Upstream colors are data. */
+:root {
+  --background: #f3f5f2;
+  --foreground: #17221c;
+  --card: #ffffff;
+  --card-foreground: #17221c;
+  --popover: #ffffff;
+  --popover-foreground: #17221c;
+  --primary: #b8652c;
+  --primary-foreground: #fff7f0;
+  --secondary: #e6ebe7;
+  --secondary-foreground: #17221c;
+  --muted: #e6ebe7;
+  --muted-foreground: #5f6f66;
+  --accent: #f5e6d8;
+  --accent-foreground: #7a3f14;
+  --destructive: #c74a2f;
+  --border: #d5ddd8;
+  --input: #d5ddd8;
+  --ring: #d8894a;
+  --good: #1f9a63;
+  --warn: #c48a1e;
+  --critical: #c74a2f;
+  --chart-1: #199e70;
+  --chart-2: #3987e5;
+  --chart-3: #d95926;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: #0e1512;
+  --foreground: #e6ede8;
+  --card: #16201b;
+  --card-foreground: #e6ede8;
+  --popover: #16201b;
+  --popover-foreground: #e6ede8;
+  --primary: #d8894a;
+  --primary-foreground: #1b110a;
+  --secondary: #1e2a24;
+  --secondary-foreground: #e6ede8;
+  --muted: #1e2a24;
+  --muted-foreground: #8fa197;
+  --accent: #2a2019;
+  --accent-foreground: #f0b98a;
+  --destructive: #e0664a;
+  --border: #25332c;
+  --input: #25332c;
+  --ring: #d8894a;
+  --good: #2fb27a;
+  --warn: #d9a03a;
+  --critical: #e0664a;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  :focus-visible {
+    @apply outline-ring outline-2 outline-offset-2;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* A link light: the one piece of the Pi's own world on the page. */
+.led {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--led) 25%, transparent);
+  background: var(--led);
+}
+.led-live {
+  animation: led-pulse 2.4s ease-in-out infinite;
+}
+@keyframes led-pulse {
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--led) 12%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .led-live {
+    animation: none;
+  }
+}

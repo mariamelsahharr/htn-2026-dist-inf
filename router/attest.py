@@ -20,13 +20,14 @@ import queue
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import httpx2
-from borsh_construct import Bool, CStruct, Enum, String, U8, U64, Vec
+from borsh_construct import U8, U64, Bool, CStruct, Enum, String, Vec
 from solders.hash import Hash
 from solders.instruction import AccountMeta, Instruction
 from solders.keypair import Keypair
@@ -42,7 +43,7 @@ PROGRAM_KEYPAIR = HERE.parent / "solana" / "program" / "target" / "deploy" / "cl
 
 # ----- wire format: the borsh layouts declared in solana/program/src/lib.rs ----------
 
-ClusterInstruction = Enum(
+ClusterInstruction: Any = Enum(  # borsh_construct's Enum builds an untyped construct
     "Initialize" / CStruct("model_hash" / U8[32]),
     "RegisterNode" / CStruct("host" / String),
     "SetWorkerSet" / CStruct("state" / U8, "active" / Vec(String)),
@@ -50,16 +51,30 @@ ClusterInstruction = Enum(
     enum_name="ClusterInstruction",
 )
 Node = CStruct("host" / String, "active" / Bool)
-Cluster = CStruct("authority" / U8[32], "model_hash" / U8[32], "epoch" / U64, "state" / U8,
-                  "nodes" / Vec(Node), "jobs_total" / U64, "jobs_local" / U64, "last_job" / U8[16])
+Cluster = CStruct(
+    "authority" / U8[32],
+    "model_hash" / U8[32],
+    "epoch" / U64,
+    "state" / U8,
+    "nodes" / Vec(Node),
+    "jobs_total" / U64,
+    "jobs_local" / U64,
+    "last_job" / U8[16],
+)
 
 
 def decode_cluster(data: bytes) -> dict[str, Any]:
     c = Cluster.parse(data)
-    return {"authority": str(Pubkey.from_bytes(bytes(c.authority))), "model_hash": bytes(c.model_hash).hex(),
-            "epoch": c.epoch, "state": STATE_NAMES.get(c.state, c.state),
-            "nodes": [{"host": n.host, "active": n.active} for n in c.nodes],
-            "jobs_total": c.jobs_total, "jobs_local": c.jobs_local, "last_job": bytes(c.last_job).hex()}
+    return {
+        "authority": str(Pubkey.from_bytes(bytes(c.authority))),
+        "model_hash": bytes(c.model_hash).hex(),
+        "epoch": c.epoch,
+        "state": STATE_NAMES.get(c.state, c.state),
+        "nodes": [{"host": n.host, "active": n.active} for n in c.nodes],
+        "jobs_total": c.jobs_total,
+        "jobs_local": c.jobs_local,
+        "last_job": bytes(c.last_job).hex(),
+    }
 
 
 def cluster_pda(program_id: Pubkey, authority: Pubkey) -> Pubkey:
@@ -76,7 +91,7 @@ def job_pda(program_id: Pubkey, cluster: Pubkey, job_id: bytes) -> Pubkey:
 def model_hash(status: dict[str, Any]) -> bytes:
     """sha256 over the model file name and the header the supervisor read from it."""
     root = status.get("root") or {}
-    doc = {"model": os.path.basename(root.get("model") or ""), "header": status.get("model_header") or {}}
+    doc = {"model": Path(root.get("model") or "").name, "header": status.get("model_header") or {}}
     return hashlib.sha256(json.dumps(doc, sort_keys=True).encode()).digest()
 
 
@@ -103,22 +118,22 @@ class LogTail:
     """New JSON lines from a file, surviving truncation and partial writes."""
 
     def __init__(self, path: str, from_start: bool = False):
-        self.path, self.pos = path, 0
-        if not from_start and os.path.exists(path):
-            self.pos = os.path.getsize(path)
+        self.path, self.pos = Path(path), 0
+        if not from_start and self.path.exists():
+            self.pos = self.path.stat().st_size
 
     def read(self) -> list[dict[str, Any]]:
         try:
-            size = os.path.getsize(self.path)
+            size = self.path.stat().st_size
         except OSError:
             return []
         if size < self.pos:
             self.pos = 0
-        with open(self.path, "rb") as fh:
+        with self.path.open("rb") as fh:
             fh.seek(self.pos)
             chunk = fh.read()
         if not chunk.endswith(b"\n"):
-            chunk = chunk[:chunk.rfind(b"\n") + 1]
+            chunk = chunk[: chunk.rfind(b"\n") + 1]
         self.pos += len(chunk)
         out = []
         for line in chunk.decode(errors="replace").splitlines():
@@ -156,8 +171,9 @@ def http_status_source(url: str, http: httpx2.Client | None = None) -> Callable[
             r.raise_for_status()
             data = r.json()
             return data if isinstance(data, dict) else None
-        except Exception:  # noqa: BLE001 - supervisor down is a normal condition here
+        except Exception:
             return None
+
     return fetch
 
 
@@ -166,6 +182,18 @@ def http_status_source(url: str, http: httpx2.Client | None = None) -> Callable[
 
 class ChainError(RuntimeError):
     pass
+
+
+class ChainLike(Protocol):
+    """What the attestor needs from a chain; Chain implements it, tests fake it."""
+
+    rpc_url: str
+    payer: Keypair
+    program_id: Pubkey
+
+    def account_data(self, pubkey: Pubkey) -> bytes | None: ...
+
+    def send(self, data: bytes, accounts: list[AccountMeta], timeout: float = 60.0) -> str: ...
 
 
 class Chain:
@@ -178,16 +206,18 @@ class Chain:
         """One JSON-RPC call. The public Devnet endpoint answers 429 under load; back off and retry."""
         self._id += 1
         for attempt in range(6):
-            r = self.http.post(self.rpc_url, json={"jsonrpc": "2.0", "id": self._id, "method": method, "params": list(params)})
+            r = self.http.post(
+                self.rpc_url, json={"jsonrpc": "2.0", "id": self._id, "method": method, "params": list(params)}
+            )
             if r.status_code == 429 and attempt < 5:
-                time.sleep(float(r.headers.get("retry-after") or 2 ** attempt))
+                time.sleep(float(r.headers.get("retry-after") or 2**attempt))
                 continue
             r.raise_for_status()
             body = r.json()
             if "error" in body:
                 raise ChainError(f"{method}: {body['error']}")
             return body["result"]
-        raise ChainError(f"{method}: rate limited")   # pragma: no cover - loop always returns or raises
+        raise ChainError(f"{method}: rate limited")  # pragma: no cover - loop always returns or raises
 
     def account_data(self, pubkey: Pubkey) -> bytes | None:
         value = self.rpc("getAccountInfo", str(pubkey), {"encoding": "base64", "commitment": "confirmed"})["value"]
@@ -197,8 +227,11 @@ class Chain:
         ix = Instruction(self.program_id, data, accounts)
         blockhash = Hash.from_string(self.rpc("getLatestBlockhash", {"commitment": "confirmed"})["value"]["blockhash"])
         tx = Transaction.new_signed_with_payer([ix], self.payer.pubkey(), [self.payer], blockhash)
-        sig = self.rpc("sendTransaction", base64.b64encode(bytes(tx)).decode(),
-                       {"encoding": "base64", "preflightCommitment": "confirmed"})
+        sig = self.rpc(
+            "sendTransaction",
+            base64.b64encode(bytes(tx)).decode(),
+            {"encoding": "base64", "preflightCommitment": "confirmed"},
+        )
         deadline = time.time() + timeout
         while time.time() < deadline:
             status = self.rpc("getSignatureStatuses", [sig])["value"][0]
@@ -233,7 +266,7 @@ def default_program_id() -> str:
 
 @dataclass
 class Attestor:
-    chain: Chain
+    chain: ChainLike
     status_source: Callable[[], dict[str, Any] | None]
     records_source: Callable[[], list[dict[str, Any]]]
     out_path: str
@@ -245,6 +278,7 @@ class Attestor:
     sent: int = 0
     errors: int = 0
     last: dict[str, Any] | None = None
+    recent: deque = field(default_factory=lambda: deque(maxlen=20))
     stop: threading.Event = field(default_factory=threading.Event)
 
     @property
@@ -252,16 +286,24 @@ class Attestor:
         return cluster_pda(self.chain.program_id, self.chain.payer.pubkey())
 
     def _authority_accounts(self, writable_payer: bool) -> list[AccountMeta]:
-        return [AccountMeta(self.chain.payer.pubkey(), is_signer=True, is_writable=writable_payer),
-                AccountMeta(self.cluster, is_signer=False, is_writable=True)]
+        return [
+            AccountMeta(self.chain.payer.pubkey(), is_signer=True, is_writable=writable_payer),
+            AccountMeta(self.cluster, is_signer=False, is_writable=True),
+        ]
 
     def record(self, kind: str, sig: str, **detail: Any) -> None:
-        row = {"t": time.time(), "kind": kind, "signature": sig,
-               "explorer": explorer_url(self.chain.rpc_url, "tx", sig), **detail}
+        row = {
+            "t": time.time(),
+            "kind": kind,
+            "signature": sig,
+            "explorer": explorer_url(self.chain.rpc_url, "tx", sig),
+            **detail,
+        }
         self.sent += 1
         self.last = row
+        self.recent.append(row)
         try:
-            with open(self.out_path, "a") as fh:
+            with Path(self.out_path).open("a") as fh:
                 fh.write(json.dumps(row) + "\n")
         except OSError:
             pass
@@ -278,8 +320,10 @@ class Attestor:
             return True
         if status is None:
             return False
-        accounts = self._authority_accounts(True) + [AccountMeta(SYSTEM_PROGRAM, is_signer=False, is_writable=False)]
-        sig = self.chain.send(ClusterInstruction.build(ClusterInstruction.enum.Initialize(model_hash=model_hash(status))), accounts)
+        accounts = [*self._authority_accounts(True), AccountMeta(SYSTEM_PROGRAM, is_signer=False, is_writable=False)]
+        sig = self.chain.send(
+            ClusterInstruction.build(ClusterInstruction.enum.Initialize(model_hash=model_hash(status))), accounts
+        )
         self.initialized = True
         self.record("initialize", sig, cluster=str(self.cluster), model_hash=model_hash(status).hex())
         return True
@@ -288,17 +332,20 @@ class Attestor:
         state, hosts, active = worker_set(status)
         for host in hosts:
             if host not in self.registered:
-                sig = self.chain.send(ClusterInstruction.build(ClusterInstruction.enum.RegisterNode(host=host)),
-                                      self._authority_accounts(False))
+                sig = self.chain.send(
+                    ClusterInstruction.build(ClusterInstruction.enum.RegisterNode(host=host)),
+                    self._authority_accounts(False),
+                )
                 self.registered.add(host)
                 self.record("register_node", sig, host=host)
         if self.last_set == (state, active):
             return False
-        sig = self.chain.send(ClusterInstruction.build(ClusterInstruction.enum.SetWorkerSet(state=state, active=list(active))),
-                              self._authority_accounts(False))
+        sig = self.chain.send(
+            ClusterInstruction.build(ClusterInstruction.enum.SetWorkerSet(state=state, active=list(active))),
+            self._authority_accounts(False),
+        )
         self.last_set = (state, active)
-        self.record("set_worker_set", sig, state=STATE_NAMES[state], active=list(active),
-                    reason=status.get("reason"))
+        self.record("set_worker_set", sig, state=STATE_NAMES[state], active=list(active), reason=status.get("reason"))
         return True
 
     def sync_jobs(self) -> int:
@@ -306,19 +353,25 @@ class Attestor:
             job = job_from_record(rec)
             if job:
                 self.pending_jobs.append(job)
-        self.pending_jobs = self.pending_jobs[-self.max_pending:]
+        self.pending_jobs = self.pending_jobs[-self.max_pending :]
         sent = 0
         while self.pending_jobs:
             job_id, served_by, digest = self.pending_jobs[0]
-            accounts = self._authority_accounts(True) + [
+            accounts = [
+                *self._authority_accounts(True),
                 AccountMeta(job_pda(self.chain.program_id, self.cluster, job_id), is_signer=False, is_writable=True),
-                AccountMeta(SYSTEM_PROGRAM, is_signer=False, is_writable=False)]
+                AccountMeta(SYSTEM_PROGRAM, is_signer=False, is_writable=False),
+            ]
             try:
-                sig = self.chain.send(ClusterInstruction.build(ClusterInstruction.enum.CommitJob(
-                    job_id=job_id, served_by=served_by, result_hash=digest)), accounts)
+                sig = self.chain.send(
+                    ClusterInstruction.build(
+                        ClusterInstruction.enum.CommitJob(job_id=job_id, served_by=served_by, result_hash=digest)
+                    ),
+                    accounts,
+                )
             except ChainError as e:
                 if "already in use" in str(e) or "custom program error" in str(e):
-                    self.pending_jobs.pop(0)   # committed before, or rejected for good: do not retry
+                    self.pending_jobs.pop(0)  # committed before, or rejected for good: do not retry
                     print(f"[attest] job {job_id.hex()} dropped: {e}", file=sys.stderr)
                     continue
                 raise
@@ -345,9 +398,17 @@ class Attestor:
             self.stop.wait(interval)
 
     def summary(self) -> dict[str, Any]:
-        return {"cluster": str(self.cluster), "explorer": explorer_url(self.chain.rpc_url, "address", str(self.cluster)),
-                "initialized": self.initialized, "sent": self.sent, "errors": self.errors,
-                "pending_jobs": len(self.pending_jobs), "last": self.last}
+        return {
+            "cluster": str(self.cluster),
+            "explorer": explorer_url(self.chain.rpc_url, "address", str(self.cluster)),
+            "initialized": self.initialized,
+            "sent": self.sent,
+            "errors": self.errors,
+            "pending_jobs": len(self.pending_jobs),
+            "last": self.last,
+            "recent": list(self.recent),
+            "payer": str(self.chain.payer.pubkey()),
+        }
 
 
 def start_thread(att: Attestor, interval: float) -> threading.Thread:
@@ -377,15 +438,27 @@ def main() -> None:
 
     payer = Keypair.from_json(Path(args.keypair).read_text())
     chain = Chain(args.rpc_url, payer, Pubkey.from_string(args.program_id))
-    att = Attestor(chain, http_status_source(args.status_url), LogTail(args.decision_log, args.from_start).read, args.out)
+    att = Attestor(
+        chain, http_status_source(args.status_url), LogTail(args.decision_log, args.from_start).read, args.out
+    )
 
     if args.show:
         data = chain.account_data(att.cluster)
-        print(json.dumps({"cluster": str(att.cluster), "explorer": explorer_url(args.rpc_url, "address", str(att.cluster)),
-                          **(decode_cluster(data) if data else {"initialized": False})}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "cluster": str(att.cluster),
+                    "explorer": explorer_url(args.rpc_url, "address", str(att.cluster)),
+                    **(decode_cluster(data) if data else {"initialized": False}),
+                },
+                indent=2,
+            )
+        )
         return
-    print(f"[attest] payer {payer.pubkey()} balance {chain.balance_sol():.3f} SOL, cluster account {att.cluster}",
-          flush=True)
+    print(
+        f"[attest] payer {payer.pubkey()} balance {chain.balance_sol():.3f} SOL, cluster account {att.cluster}",
+        flush=True,
+    )
     if args.once:
         att.step()
         return

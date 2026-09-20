@@ -6,19 +6,21 @@ import hashlib
 import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-sys.path.insert(0, os.path.dirname(__file__))
-import attest  # noqa: E402
+sys.path.insert(0, str(Path(__file__).parent))
+import attest
 
-EXAMPLE = json.load(open(os.path.join(os.path.dirname(__file__), "..", "cluster", "supervisor", "status.example.json")))
+EXAMPLE = json.loads((Path(__file__).parent.parent / "cluster" / "supervisor" / "status.example.json").read_text())
 PROGRAM = Pubkey.new_unique()
 
 
 # ----- borsh layout: must match the Rust crate (see instruction_layout_is_stable there) -----
+
 
 def ix(name, **fields):
     return attest.ClusterInstruction.build(getattr(attest.ClusterInstruction.enum, name)(**fields))
@@ -34,11 +36,22 @@ def test_instruction_encoding_matches_rust_layout():
 
 def test_cluster_account_round_trip():
     authority = Pubkey.new_unique()
-    raw = (bytes(authority) + b"\x09" * 32 + (5).to_bytes(8, "little") + b"\x02"
-           + (2).to_bytes(4, "little")
-           + (13).to_bytes(4, "little") + b"192.168.50.11" + b"\x01"
-           + (13).to_bytes(4, "little") + b"192.168.50.14" + b"\x00"
-           + (10).to_bytes(8, "little") + (7).to_bytes(8, "little") + b"\xaa" * 16)
+    raw = (
+        bytes(authority)
+        + b"\x09" * 32
+        + (5).to_bytes(8, "little")
+        + b"\x02"
+        + (2).to_bytes(4, "little")
+        + (13).to_bytes(4, "little")
+        + b"192.168.50.11"
+        + b"\x01"
+        + (13).to_bytes(4, "little")
+        + b"192.168.50.14"
+        + b"\x00"
+        + (10).to_bytes(8, "little")
+        + (7).to_bytes(8, "little")
+        + b"\xaa" * 16
+    )
     padded = raw + bytes(attest_space := 1024 - len(raw))
     assert attest_space > 0
     c = attest.decode_cluster(padded)
@@ -57,11 +70,12 @@ def test_pdas_are_deterministic_and_distinct():
 
 # ----- what gets derived from the supervisor and router --------------------------------
 
+
 def test_worker_set_from_status_contract():
     state, hosts, active = attest.worker_set(EXAMPLE)
     assert state == attest.STATE_CODES["degraded"]
     assert hosts == ("192.168.50.11", "192.168.50.12", "192.168.50.14")
-    assert active == ("192.168.50.11",)          # port stripped from active_workers
+    assert active == ("192.168.50.11",)  # port stripped from active_workers
     assert attest.worker_set({}) == (0, (), ())
 
 
@@ -78,22 +92,22 @@ def test_only_finished_answers_become_jobs():
     job = attest.job_from_record({"request_id": rid, "served_by": "baseten", "result_sha256": digest})
     assert job == (bytes.fromhex(rid), "baseten", bytes.fromhex(digest))
     assert attest.job_from_record({"request_id": rid, "served_by": "none", "error": "all failed"}) is None
-    assert attest.job_from_record({"request_id": rid, "served_by": "cluster"}) is None   # died mid-stream
+    assert attest.job_from_record({"request_id": rid, "served_by": "cluster"}) is None  # died mid-stream
     assert attest.job_from_record({"request_id": "zz", "served_by": "cluster", "result_sha256": digest}) is None
 
 
 def test_log_tail_survives_partial_lines_and_truncation(tmp_path):
     p = tmp_path / "d.jsonl"
     p.write_text('{"a":1}\n')
-    tail = attest.LogTail(str(p))            # starts at the end: old records are not replayed
+    tail = attest.LogTail(str(p))  # starts at the end: old records are not replayed
     assert tail.read() == []
-    with open(p, "a") as fh:
+    with p.open("a") as fh:
         fh.write('{"a":2}\n{"a":3')
     assert tail.read() == [{"a": 2}]
-    with open(p, "a") as fh:
-        fh.write('}\nnot json\n')
+    with p.open("a") as fh:
+        fh.write("}\nnot json\n")
     assert tail.read() == [{"a": 3}]
-    p.write_text('{"a":9}\n')                # truncated and rewritten
+    p.write_text('{"a":9}\n')  # truncated and rewritten
     assert tail.read() == [{"a": 9}]
     assert attest.LogTail(str(p), from_start=True).read() == [{"a": 9}]
 
@@ -104,6 +118,15 @@ def test_explorer_links_follow_the_rpc():
 
 
 # ----- the loop, against a fake chain -----------------------------------------------------
+
+
+class FakeStatus:
+    def __init__(self, doc):
+        self.doc = doc
+
+    def __call__(self):
+        return self.doc
+
 
 class FakeChain:
     """Records instruction bytes; account_data reflects whether Initialize ran."""
@@ -124,7 +147,7 @@ class FakeChain:
         self.sent.append(data)
         if data[0] == 0:
             self.initialized = True
-        return "sig%d" % len(self.sent)
+        return f"sig{len(self.sent)}"
 
 
 @pytest.fixture
@@ -132,25 +155,30 @@ def att(tmp_path):
     log = tmp_path / "decisions.jsonl"
     log.write_text("")
     chain = FakeChain()
-    a = attest.Attestor(chain, lambda: None, attest.LogTail(str(log)).read, str(tmp_path / "out.jsonl"))
-    a.status = EXAMPLE                          # what the fake supervisor says right now
-    a.status_source = lambda: a.status
-    return a, chain, log, tmp_path / "out.jsonl"
+    src = FakeStatus(EXAMPLE)  # what the fake supervisor says right now
+    a = attest.Attestor(chain, src, attest.LogTail(str(log)).read, str(tmp_path / "out.jsonl"))
+    return a, chain, log, tmp_path / "out.jsonl", src
 
 
 def test_first_step_initializes_registers_and_sets_the_worker_set(att):
-    a, chain, _, out = att
+    a, chain, _, out, _src = att
     a.step()
     kinds = [d[0] for d in chain.sent]
-    assert kinds == [0, 1, 1, 1, 2]           # initialize, three registers, one worker set
+    assert kinds == [0, 1, 1, 1, 2]  # initialize, three registers, one worker set
     assert chain.sent[-1] == ix("SetWorkerSet", state=2, active=["192.168.50.11"])
-    rows = [json.loads(line) for line in open(out)]
-    assert [r["kind"] for r in rows] == ["initialize", "register_node", "register_node", "register_node", "set_worker_set"]
+    rows = [json.loads(line) for line in out.read_text().splitlines()]
+    assert [r["kind"] for r in rows] == [
+        "initialize",
+        "register_node",
+        "register_node",
+        "register_node",
+        "set_worker_set",
+    ]
     assert rows[-1]["explorer"].startswith("https://explorer.solana.com/tx/sig5?cluster=devnet")
 
 
 def test_unchanged_status_sends_nothing(att):
-    a, chain, _, _ = att
+    a, chain, _, _, _src = att
     a.step()
     n = len(chain.sent)
     a.step()
@@ -158,9 +186,13 @@ def test_unchanged_status_sends_nothing(att):
 
 
 def test_worker_returning_bumps_the_set_once(att):
-    a, chain, _, _ = att
+    a, chain, _, _, src = att
     a.step()
-    a.status = {**EXAMPLE, "state": "healthy", "active_workers": ["192.168.50.11:9998", "192.168.50.12:9998", "192.168.50.14:9998"]}
+    src.doc = {
+        **EXAMPLE,
+        "state": "healthy",
+        "active_workers": ["192.168.50.11:9998", "192.168.50.12:9998", "192.168.50.14:9998"],
+    }
     a.step()
     assert chain.sent[-1] == ix("SetWorkerSet", state=1, active=["192.168.50.11", "192.168.50.12", "192.168.50.14"])
     a.step()
@@ -168,26 +200,28 @@ def test_worker_returning_bumps_the_set_once(att):
 
 
 def test_jobs_are_committed_and_retried_after_rpc_errors(att):
-    a, chain, log, out = att
+    a, chain, log, out, _src = att
     a.step()
     digest = hashlib.sha256(b"answer").hexdigest()
-    with open(log, "a") as fh:
+    with log.open("a") as fh:
         fh.write(json.dumps({"request_id": "ab" * 16, "served_by": "cluster", "result_sha256": digest}) + "\n")
         fh.write(json.dumps({"request_id": "cd" * 16, "served_by": "none", "error": "x"}) + "\n")
     chain.fail_next = "getLatestBlockhash: timeout"
     with pytest.raises(attest.ChainError):
         a.step()
-    assert a.pending_jobs and chain.sent[-1][0] == 2          # nothing committed yet, job kept
+    assert a.pending_jobs and chain.sent[-1][0] == 2  # nothing committed yet, job kept
     a.step()
-    assert chain.sent[-1] == ix("CommitJob", job_id=bytes.fromhex("ab" * 16), served_by="cluster", result_hash=bytes.fromhex(digest))
+    assert chain.sent[-1] == ix(
+        "CommitJob", job_id=bytes.fromhex("ab" * 16), served_by="cluster", result_hash=bytes.fromhex(digest)
+    )
     assert not a.pending_jobs
-    assert json.loads(open(out).read().splitlines()[-1])["kind"] == "commit_job"
+    assert json.loads(out.read_text().splitlines()[-1])["kind"] == "commit_job"
 
 
 def test_duplicate_job_is_dropped_not_retried(att):
-    a, chain, log, _ = att
+    a, chain, log, _, _src = att
     a.step()
-    with open(log, "a") as fh:
+    with log.open("a") as fh:
         fh.write(json.dumps({"request_id": "ef" * 16, "served_by": "openai", "result_sha256": "00" * 32}) + "\n")
     chain.fail_next = "transaction failed: {'InstructionError': [0, {'Custom': 0}]} custom program error"
     a.step()
@@ -195,10 +229,10 @@ def test_duplicate_job_is_dropped_not_retried(att):
 
 
 def test_status_outage_still_commits_jobs(att):
-    a, chain, log, _ = att
+    a, chain, log, _, src = att
     a.step()
-    a.status = None
-    with open(log, "a") as fh:
+    src.doc = None
+    with log.open("a") as fh:
         fh.write(json.dumps({"request_id": "12" * 16, "served_by": "gemini", "result_sha256": "11" * 32}) + "\n")
     a.step()
     assert chain.sent[-1][0] == 3
@@ -217,7 +251,7 @@ def test_record_queue_feeds_jobs_in_process():
 
 
 def test_run_stops_on_event():
-    a = attest.Attestor(FakeChain(), lambda: None, lambda: [], os.devnull)
+    a = attest.Attestor(FakeChain(), lambda: None, list, os.devnull)
     t = attest.start_thread(a, 0.05)
     a.stop.set()
     t.join(2)
@@ -226,6 +260,7 @@ def test_run_stops_on_event():
 
 def test_rpc_backs_off_on_429(monkeypatch):
     import httpx2
+
     calls, sleeps = [], []
     monkeypatch.setattr(attest.time, "sleep", sleeps.append)
 
@@ -234,6 +269,7 @@ def test_rpc_backs_off_on_429(monkeypatch):
         if len(calls) < 3:
             return httpx2.Response(429, headers={"retry-after": "0.1"})
         return httpx2.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {"value": 7}})
+
     chain = attest.Chain("http://rpc", Keypair(), PROGRAM, httpx2.Client(transport=httpx2.MockTransport(handler)))
     assert chain.rpc("getBalance", "x") == {"value": 7}
     assert len(calls) == 3 and sleeps == [0.1, 0.1]
