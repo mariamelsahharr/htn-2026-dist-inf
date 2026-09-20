@@ -8,7 +8,7 @@ import { defineConfig } from "vite"
 // the router's paths to :8000.
 export default defineConfig({
   plugins: [react({ compiler: true }), tailwindcss()],
-  resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
+  resolve: { alias: { "@": path.resolve(import.meta.dirname, "./src") } },
   server: {
     proxy: {
       "/v1": "http://localhost:8000",
