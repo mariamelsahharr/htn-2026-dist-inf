@@ -53,13 +53,13 @@ export function SolanaPanel({ solana }: { solana: SolanaSummary }) {
       ) : (
         <ul className="divide-border divide-y">
           {[...solana.recent].reverse().map((row) => (
-            <li key={row.signature} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-1.5 text-sm">
-              <span className="flex min-w-0 items-baseline gap-2">
-                <time className="text-muted-foreground shrink-0 text-xs" dateTime={new Date(row.t * 1000).toISOString()}>
-                  {new Date(row.t * 1000).toLocaleTimeString()}
-                </time>
-                <span>{KIND[row.kind] ?? row.kind}</span>
-                <span className="text-muted-foreground truncate text-xs">{describe(row)}</span>
+            <li key={row.signature} className="flex items-baseline gap-x-3 py-1.5 text-sm">
+              <time className="text-muted-foreground shrink-0 text-xs" dateTime={new Date(row.t * 1000).toISOString()}>
+                {new Date(row.t * 1000).toLocaleTimeString()}
+              </time>
+              <span className="min-w-0 flex-1 truncate">
+                <span className="whitespace-nowrap">{KIND[row.kind] ?? row.kind}</span>
+                <span className="text-muted-foreground ml-2 text-xs">{describe(row)}</span>
               </span>
               <a
                 href={row.explorer}
