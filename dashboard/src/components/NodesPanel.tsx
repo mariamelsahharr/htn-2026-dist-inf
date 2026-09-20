@@ -39,15 +39,26 @@ function Readings({ t }: { t: Telemetry | null | undefined }) {
 const workerGone = (t: Telemetry | null | undefined): boolean =>
   t?.worker_listening === false && !(t.worker_connections ?? 0)
 
-// State plus the one flag that matters: a node throttling right now, or no worker process.
-function State({ text, tone, t }: { text: string; tone: "good" | "warn" | "critical" | "muted"; t?: Telemetry | null }) {
+// State plus the one flag that matters: a node throttling right now, or a worker whose
+// process is gone. The root runs dllama-api, not a worker, so it is never checked for one.
+function State({
+  text,
+  tone,
+  t,
+  worker = true,
+}: {
+  text: string
+  tone: "good" | "warn" | "critical" | "muted"
+  t?: Telemetry | null
+  worker?: boolean
+}) {
   const throttling = t?.flags.some((f) => !f.endsWith("_since_boot")) ?? false
   const color = { good: "text-foreground", warn: "text-warn", critical: "text-critical", muted: "text-muted-foreground" }[tone]
   return (
     <span className="flex flex-col text-xs leading-tight">
       <span className={color}>{text}</span>
       {throttling && <span className="text-warn">throttling</span>}
-      {!throttling && workerGone(t) && <span className="text-critical">no worker process</span>}
+      {!throttling && worker && workerGone(t) && <span className="text-critical">no worker process</span>}
     </span>
   )
 }
@@ -78,7 +89,7 @@ export function NodesPanel({ cluster }: { cluster: ClusterStatus }) {
         <ul className="divide-border min-w-[38rem] divide-y">
           <li className={`${GRID} py-2`}>
             <span className="text-sm font-medium">root</span>
-            <State text={rootDown ? "down" : "serving"} tone={rootDown ? "critical" : "good"} t={cluster.root?.telemetry} />
+            <State text={rootDown ? "down" : "serving"} tone={rootDown ? "critical" : "good"} t={cluster.root?.telemetry} worker={false} />
             <Readings t={cluster.root?.telemetry} />
           </li>
           {workers.map((w) => (
