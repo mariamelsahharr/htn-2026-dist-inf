@@ -35,12 +35,14 @@
     # for minutes per host before failing. Run with -e apt_online=false to skip both apt tasks
     # on a cluster that is already provisioned; the optional packages fall back gracefully.
     - name: Update apt cache
+      tags: [network]
       apt:
         update_cache: yes
         cache_valid_time: 3600
       when: apt_online | default(true) | bool
 
     - name: Install dependencies
+      tags: [network]
       when: apt_online | default(true) | bool
       apt:
         name:
@@ -53,7 +55,10 @@
           - iperf3
         state: present
 
+    # Every task that can leave the switch is tagged `network`: `--skip-tags network` runs the
+    # whole play on an offline cluster that already has the checkout and the packages.
     - name: Clone distributed-llama
+      tags: [network]
       git:
         repo: https://github.com/b4rtaz/distributed-llama.git
         dest: /home/pi/distributed-llama
@@ -72,7 +77,7 @@
       loop:
         - dllama
         - dllama-api
-      when: dllama_src.changed
+      when: dllama_src is defined and dllama_src.changed
 
     # A bare `make` runs the Makefile's first target, which is `clean`. Plain
     # command tasks keep this on ansible-core only (the make module needs a collection).
