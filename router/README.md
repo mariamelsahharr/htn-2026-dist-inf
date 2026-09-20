@@ -100,9 +100,9 @@ router Pi).
 
 ```python
 from openai import OpenAI
+
 c = OpenAI(base_url="http://localhost:8000/v1", api_key="x")
-for chunk in c.chat.completions.create(model="auto", stream=True,
-        messages=[{"role": "user", "content": "say hi"}]):
+for chunk in c.chat.completions.create(model="auto", stream=True, messages=[{"role": "user", "content": "say hi"}]):
     print(chunk.choices[0].delta.content or "", end="", flush=True)
 ```
 

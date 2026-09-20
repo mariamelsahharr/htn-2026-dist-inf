@@ -15,45 +15,98 @@ import sys
 import threading
 import time
 import urllib.request
+from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, os.path.dirname(__file__))
-from supervisor import (DEGRADED, DOWN, HEALTHY, MODEL_MAGIC, RESTARTING,  # noqa: E402
-                        Config, Supervisor, Worker, build_parser, choose_workers,
-                        config_from_args, largest_power_of_two_at_most,
-                        parse_workers, powers_of_two, read_model_header,
-                        serve_status, valid_node_counts)
+sys.path.insert(0, str(Path(__file__).parent))
+from supervisor import (
+    DEGRADED,
+    DOWN,
+    HEALTHY,
+    MODEL_MAGIC,
+    RESTARTING,
+    Config,
+    Supervisor,
+    Worker,
+    build_parser,
+    choose_workers,
+    config_from_args,
+    largest_power_of_two_at_most,
+    parse_workers,
+    powers_of_two,
+    read_model_header,
+    serve_status,
+    valid_node_counts,
+)
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-FAKE = os.path.join(HERE, "fake_dllama_api.py")
+HERE = Path(__file__).resolve().parent
+FAKE = str(HERE / "fake_dllama_api.py")
 
 # Header key ids from distributed-llama src/llm.hpp
-KEY = {"dim": 2, "hidden_dim": 3, "n_layers": 4, "n_heads": 5, "n_kv_heads": 6,
-       "vocab_size": 9, "seq_len": 10, "weight_float_type": 13, "head_dim": 19,
-       "moe_hidden_dim": 21}
+KEY = {
+    "dim": 2,
+    "hidden_dim": 3,
+    "n_layers": 4,
+    "n_heads": 5,
+    "n_kv_heads": 6,
+    "vocab_size": 9,
+    "seq_len": 10,
+    "weight_float_type": 13,
+    "head_dim": 19,
+    "moe_hidden_dim": 21,
+}
 
-LLAMA_3_2_3B = dict(dim=3072, hidden_dim=8192, n_layers=28, n_heads=24, n_kv_heads=8,
-                    vocab_size=128256, seq_len=8192, weight_float_type=2, head_dim=128)
-QWEN3_0_6B = dict(dim=1024, hidden_dim=3072, n_layers=28, n_heads=16, n_kv_heads=8,
-                  vocab_size=151936, seq_len=4096, weight_float_type=2, head_dim=128)
+LLAMA_3_2_3B = {
+    "dim": 3072,
+    "hidden_dim": 8192,
+    "n_layers": 28,
+    "n_heads": 24,
+    "n_kv_heads": 8,
+    "vocab_size": 128256,
+    "seq_len": 8192,
+    "weight_float_type": 2,
+    "head_dim": 128,
+}
+QWEN3_0_6B = {
+    "dim": 1024,
+    "hidden_dim": 3072,
+    "n_layers": 28,
+    "n_heads": 16,
+    "n_kv_heads": 8,
+    "vocab_size": 151936,
+    "seq_len": 4096,
+    "weight_float_type": 2,
+    "head_dim": 128,
+}
 # Synthetic model whose dims all divide by 3: valid counts are not powers of two.
-THREESY = dict(dim=3072, hidden_dim=6144, n_layers=4, n_heads=24, n_kv_heads=6,
-               vocab_size=98304, seq_len=1024, weight_float_type=2, head_dim=128)
+THREESY = {
+    "dim": 3072,
+    "hidden_dim": 6144,
+    "n_layers": 4,
+    "n_heads": 24,
+    "n_kv_heads": 6,
+    "vocab_size": 98304,
+    "seq_len": 1024,
+    "weight_float_type": 2,
+    "head_dim": 128,
+}
 
 
 def write_model(path, params):
     """Write a .m file with only the header, the way converter/writer.py does."""
     import struct
+
     data = b"".join(struct.pack("<ii", KEY[k], v) for k, v in params.items())
-    with open(path, "wb") as f:
+    with Path(path).open("wb") as f:
         f.write(struct.pack("<ii", MODEL_MAGIC, 8 + len(data)))
         f.write(data)
-        f.write(b"\0" * 64)   # a few bytes of "weights"
+        f.write(b"\0" * 64)  # a few bytes of "weights"
     return str(path)
 
 
 # --------------------------------------------------------------- set selection
+
 
 @pytest.mark.parametrize("n,expected", [(1, 1), (2, 2), (3, 2), (4, 4), (5, 4), (7, 4), (8, 8), (9, 8)])
 def test_largest_power_of_two(n, expected):
@@ -83,15 +136,15 @@ def test_seven_workers_make_eight_nodes_and_six_make_four():
 
 def test_valid_counts_drive_the_choice_not_powers_of_two():
     counts = [1, 2, 3, 4, 6, 8]
-    assert choose_workers(list("ab"), counts) == ["a", "b"]          # 3 nodes
-    assert choose_workers(list("abcde"), counts) == list("abcde")    # 6 nodes
-    assert choose_workers(list("abcd"), counts) == list("abc")       # 5 not valid -> 4
-    assert choose_workers(list("abcdef"), counts) == list("abcde")   # 7 not valid -> 6
+    assert choose_workers(list("ab"), counts) == ["a", "b"]  # 3 nodes
+    assert choose_workers(list("abcde"), counts) == list("abcde")  # 6 nodes
+    assert choose_workers(list("abcd"), counts) == list("abc")  # 5 not valid -> 4
+    assert choose_workers(list("abcdef"), counts) == list("abcde")  # 7 not valid -> 6
 
 
 def test_min_nodes_floor_stands_down_instead_of_shrinking():
     assert choose_workers(list("abc"), [1, 2, 4, 8], min_nodes=4) == ["a", "b", "c"]
-    assert choose_workers(list("ab"), [1, 2, 4, 8], min_nodes=4) is None      # 3 nodes < floor
+    assert choose_workers(list("ab"), [1, 2, 4, 8], min_nodes=4) is None  # 3 nodes < floor
     assert choose_workers(list("ab"), [1, 2, 4, 8], min_nodes=2) == ["a"]
 
 
@@ -107,6 +160,7 @@ def test_powers_of_two_helper():
 
 
 # ---------------------------------------------------------------- model header
+
 
 def test_read_header_round_trips_the_converter_format(tmp_path):
     h = read_model_header(write_model(tmp_path / "m.m", LLAMA_3_2_3B))
@@ -129,7 +183,7 @@ def test_bad_magic_is_rejected(tmp_path):
 
 def test_llama_3_2_3b_allows_exactly_1_2_4_8(tmp_path):
     h = read_model_header(write_model(tmp_path / "m.m", LLAMA_3_2_3B))
-    assert valid_node_counts(h, 32) == [1, 2, 4, 8]      # 16 fails on 24 heads
+    assert valid_node_counts(h, 32) == [1, 2, 4, 8]  # 16 fails on 24 heads
 
 
 def test_qwen3_0_6b_allows_up_to_16(tmp_path):
@@ -166,6 +220,7 @@ def test_node_counts_override_wins(tmp_path):
 
 # ------------------------------------------------------------------ hysteresis
 
+
 def test_first_probe_decides_outright():
     w = Worker("h", 9998, fail_after=2, ok_after=2)
     assert w.record(True, 1.0) is True and w.alive is True
@@ -199,6 +254,7 @@ def test_hit_resets_the_miss_counter():
 
 # --------------------------------------------------------------------- command
 
+
 def test_workers_flag_is_last_and_space_separated():
     cfg = Config(workers=[("a", 9998), ("b", 9998)], extra_args="--max-seq-len 4096")
     sup = Supervisor(cfg)
@@ -225,8 +281,10 @@ def test_cli_defaults_round_trip():
 
 # ------------------------------------------------------------------ end to end
 
+
 def free_port() -> int:
     import socket
+
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
@@ -244,34 +302,46 @@ def wait_for(pred, timeout=20.0, step=0.1):
 class Lab:
     """A supervisor wired to fake_dllama_api.py and a file-driven probe."""
 
-    def __init__(self, tmp_path, workers=("w1", "w2", "w3"), model="m.m", min_nodes=1, node_counts=None,
-                 load_seconds=0.3):
+    def __init__(
+        self, tmp_path, workers=("w1", "w2", "w3"), model="m.m", min_nodes=1, node_counts=None, load_seconds=0.3
+    ):
         self.load_seconds = load_seconds
         self.dead_file = str(tmp_path / "dead")
         self.resets = []
         self.port = free_port()
         self.cfg = Config(
             workers=[(w, 9998) for w in workers],
-            dllama_bin=FAKE, model=model, tokenizer="t.t",
-            min_nodes=min_nodes, node_counts=node_counts,
-            api_port=self.port, status_file=str(tmp_path / "status.json"),
+            dllama_bin=FAKE,
+            model=model,
+            tokenizer="t.t",
+            min_nodes=min_nodes,
+            node_counts=node_counts,
+            api_port=self.port,
+            status_file=str(tmp_path / "status.json"),
             log_dir=str(tmp_path / "logs"),
-            interval=0.2, fail_after=2, ok_after=1, rejoin_grace=0.6,
-            settle=0.1, ready_timeout=15.0, launch_backoff=0.3,
-            api_check_interval=0.5, api_stall_timeout=0,
+            interval=0.2,
+            fail_after=2,
+            ok_after=1,
+            rejoin_grace=0.6,
+            settle=0.1,
+            ready_timeout=15.0,
+            launch_backoff=0.3,
+            api_check_interval=0.5,
+            api_stall_timeout=0,
         )
-        self.sup = Supervisor(self.cfg, probe=self.probe, spawn=self.spawn,
-                              reset_worker=self.reset, telemetry=self.telemetry)
+        self.sup = Supervisor(
+            self.cfg, probe=self.probe, spawn=self.spawn, reset_worker=self.reset, telemetry=self.telemetry
+        )
         self.thread = threading.Thread(target=self.sup.run, daemon=True)
 
     def dead(self) -> set:
-        if not os.path.exists(self.dead_file):
+        if not Path(self.dead_file).exists():
             return set()
-        with open(self.dead_file) as f:
-            return {l.strip() for l in f if l.strip()}
+        with Path(self.dead_file).open() as f:
+            return {line.strip() for line in f if line.strip()}
 
     def set_dead(self, *hosts) -> None:
-        with open(self.dead_file, "w") as f:
+        with Path(self.dead_file).open("w") as f:
             f.write("\n".join(hosts))
 
     def probe(self, host: str) -> bool:
@@ -281,10 +351,15 @@ class Lab:
         return None if host in self.dead() else {"temp_c": 50.0 + len(host), "throttled": "0x0", "flags": []}
 
     def spawn(self, cmd, reason):
-        env = {**os.environ, "FAKE_DEAD_FILE": self.dead_file,
-               "FAKE_LOAD_SECONDS": str(self.load_seconds), "FAKE_RETRY_SECONDS": "0.2"}
-        return subprocess.Popen([sys.executable, FAKE, *cmd[1:]], env=env,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        env = {
+            **os.environ,
+            "FAKE_DEAD_FILE": self.dead_file,
+            "FAKE_LOAD_SECONDS": str(self.load_seconds),
+            "FAKE_RETRY_SECONDS": "0.2",
+        }
+        return subprocess.Popen(
+            [sys.executable, FAKE, *cmd[1:]], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
 
     def reset(self, host: str) -> bool:
         self.resets.append(host)
@@ -302,7 +377,7 @@ class Lab:
         return [w.host for w in self.sup.active]
 
     def status_file(self):
-        with open(self.cfg.status_file) as f:
+        with Path(self.cfg.status_file).open() as f:
             return json.load(f)
 
 
@@ -364,7 +439,7 @@ def test_n_workers_with_model_derived_counts(tmp_path):
         lab.set_dead("w4")
         assert wait_for(lambda: sup.state == DEGRADED and lab.active() == ["w1", "w2", "w3"]), lab.active()
 
-        lab.set_dead("w4", "w5", "w1")   # two alive -> 3 nodes, a set powers of two could not use
+        lab.set_dead("w4", "w5", "w1")  # two alive -> 3 nodes, a set powers of two could not use
         assert wait_for(lambda: lab.active() == ["w2", "w3"]), lab.active()
         assert lab.status_file()["nodes_active"] == 3
     finally:
@@ -383,7 +458,7 @@ def test_below_min_nodes_goes_down_and_recovers(tmp_path):
         assert sup.proc is None and lab.active() == []
         assert "at least 4" in sup.state_reason
         assert lab.status_file()["nodes_active"] == 0
-        assert sup.generation == gen           # nothing was launched on a smaller set
+        assert sup.generation == gen  # nothing was launched on a smaller set
         lab.set_dead()
         assert wait_for(lambda: sup.state == HEALTHY and sup.generation > gen), sup.state_reason
     finally:
@@ -392,7 +467,7 @@ def test_below_min_nodes_goes_down_and_recovers(tmp_path):
 
 def test_explicit_counts_without_a_fit_stand_down(tmp_path):
     lab = Lab(tmp_path, node_counts=[4, 8])
-    lab.set_dead("w3")                          # three nodes reachable, only 4 and 8 allowed
+    lab.set_dead("w3")  # three nodes reachable, only 4 and 8 allowed
     lab.start()
     try:
         assert wait_for(lambda: lab.sup.state == DOWN), lab.sup.state_reason
@@ -412,7 +487,7 @@ def test_root_crash_is_relaunched(lab):
 
 def test_worker_dead_before_first_launch_shrinks_the_set(tmp_path):
     lab = Lab(tmp_path)
-    lab.set_dead("w2")          # dead before the first launch is even attempted
+    lab.set_dead("w2")  # dead before the first launch is even attempted
     lab.start()
     try:
         # w2 dead -> 3 alive+root = 3 -> largest 2^n = 2 -> one worker, w1
@@ -472,7 +547,7 @@ def test_state_names_are_the_router_contract():
 
 def test_snapshot_matches_the_published_example(tmp_path):
     """status.example.json is what the router and metrics tests parse; keep it honest."""
-    example = json.load(open(os.path.join(HERE, "status.example.json")))
+    example = json.loads((HERE / "status.example.json").read_text())
     snap = Supervisor(Config(workers=[("a", 9998), ("b", 9998), ("c", 9998)], model="missing.m")).snapshot()
     assert set(snap) == set(example)
     assert set(snap["root"]) == set(example["root"])
@@ -486,7 +561,9 @@ def test_telemetry_rides_along_with_liveness(lab):
     assert by_host["w1"]["telemetry"]["temp_c"] == 52.0 and doc["root"]["telemetry"]["temp_c"] == 59.0
     lab.set_dead("w3")
     wait_for(lambda: lab.sup.last_snapshot()["workers"][2]["alive"] is False, 20)
-    assert lab.sup.last_snapshot()["workers"][2]["telemetry"] is None, "a dead worker has no telemetry, not stale telemetry"
+    assert lab.sup.last_snapshot()["workers"][2]["telemetry"] is None, (
+        "a dead worker has no telemetry, not stale telemetry"
+    )
 
 
 def test_telemetry_off_leaves_nulls(tmp_path):

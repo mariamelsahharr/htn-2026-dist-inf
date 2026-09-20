@@ -15,6 +15,7 @@ import json
 import subprocess
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 TEMP = "/sys/class/thermal/thermal_zone0/temp"
 THROTTLED = "/sys/devices/platform/soc/soc:firmware/get_throttled"
@@ -24,14 +25,21 @@ LOADAVG = "/proc/loadavg"
 UPTIME = "/proc/uptime"
 
 # vcgencmd get_throttled bits; 16-19 are the same conditions "since boot"
-FLAG_BITS = {0: "under_voltage", 1: "freq_capped", 2: "throttled", 3: "soft_temp_limit",
-             16: "under_voltage_since_boot", 17: "freq_capped_since_boot",
-             18: "throttled_since_boot", 19: "soft_temp_limit_since_boot"}
+FLAG_BITS = {
+    0: "under_voltage",
+    1: "freq_capped",
+    2: "throttled",
+    3: "soft_temp_limit",
+    16: "under_voltage_since_boot",
+    17: "freq_capped_since_boot",
+    18: "throttled_since_boot",
+    19: "soft_temp_limit_since_boot",
+}
 
 
 def _read(path: str) -> str | None:
     try:
-        with open(path) as fh:
+        with Path(path).open() as fh:
             return fh.read().strip()
     except OSError:
         return None
@@ -68,8 +76,14 @@ def read_meminfo(path: str = MEMINFO) -> dict[str, int]:
     return out
 
 
-def telemetry(temp_path: str = TEMP, throttled_path: str = THROTTLED, meminfo_path: str = MEMINFO,
-              loadavg_path: str = LOADAVG, uptime_path: str = UPTIME, cpu_freq_path: str = CPU_FREQ) -> dict:
+def telemetry(
+    temp_path: str = TEMP,
+    throttled_path: str = THROTTLED,
+    meminfo_path: str = MEMINFO,
+    loadavg_path: str = LOADAVG,
+    uptime_path: str = UPTIME,
+    cpu_freq_path: str = CPU_FREQ,
+) -> dict:
     temp = _read(temp_path)
     throttled = read_throttled(throttled_path)
     mem = read_meminfo(meminfo_path)

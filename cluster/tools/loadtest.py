@@ -34,13 +34,15 @@ import time
 import urllib.error
 import urllib.request
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 
 # ---------------------------------------------------------------- prompt corpus
 
 # Shaped like what a coding agent actually sends, so the numbers mean something.
 TASKS = [
-    "Write a bash one-liner that finds every file over 100MB under the current directory and prints size and path, sorted.",
+    "Write a bash one-liner that finds every file over 100MB under the current directory and prints size and path, "
+    "sorted.",
     "Explain what this systemd unit does and why it might fail to restart after a reboot.",
     "Refactor this function so the error handling is not duplicated. Keep the signature.",
     "Give me a Python snippet that retries an HTTP call with exponential backoff and a jitter.",
@@ -76,6 +78,7 @@ def build_prompt(target_tokens, rng):
 
 # ---------------------------------------------------------------- stats helpers
 
+
 def pct(values, p):
     if not values:
         return None
@@ -95,7 +98,7 @@ class Live:
         self.completed = 0
         self.errors = 0
         self.inflight = 0
-        self.tokens_window = []     # (timestamp, tokens)
+        self.tokens_window = []  # (timestamp, tokens)
         self.tps_file = tps_file
 
     def add_tokens(self, n):
@@ -114,18 +117,24 @@ class Live:
             return
         try:
             tmp = self.tps_file + ".tmp"
-            with open(tmp, "w") as fh:
-                json.dump({"tps": round(self.rolling_tps(), 2),
-                           "inflight": self.inflight,
-                           "completed": self.completed,
-                           "errors": self.errors,
-                           "ts": time.time()}, fh)
-            os.replace(tmp, self.tps_file)
+            with Path(tmp).open("w") as fh:
+                json.dump(
+                    {
+                        "tps": round(self.rolling_tps(), 2),
+                        "inflight": self.inflight,
+                        "completed": self.completed,
+                        "errors": self.errors,
+                        "ts": time.time(),
+                    },
+                    fh,
+                )
+            Path(tmp).replace(self.tps_file)
         except Exception:
             pass
 
 
 # ---------------------------------------------------------------- one request
+
 
 def one_request(url, api_key, model, prompt, max_tokens, temperature, timeout, live):
     body = {
@@ -142,7 +151,7 @@ def one_request(url, api_key, model, prompt, max_tokens, temperature, timeout, l
 
     rec = {
         "t_start": time.time(),
-        "start_iso": datetime.now(timezone.utc).isoformat(),
+        "start_iso": datetime.now(UTC).isoformat(),
         "prompt_chars": len(prompt),
         "max_tokens": max_tokens,
         "ok": False,
@@ -195,7 +204,7 @@ def one_request(url, api_key, model, prompt, max_tokens, temperature, timeout, l
                     live.add_tokens(1)
         rec["ok"] = True
     except urllib.error.HTTPError as e:
-        rec["served_by"] = e.headers.get("X-Served-By")   # the router labels failures too
+        rec["served_by"] = e.headers.get("X-Served-By")  # the router labels failures too
         try:
             rec["error"] = f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:200]}"
         except Exception:
@@ -217,25 +226,22 @@ def one_request(url, api_key, model, prompt, max_tokens, temperature, timeout, l
 
 # ---------------------------------------------------------------- runner
 
+
 def main():
     ap = argparse.ArgumentParser(description="Load test an OpenAI-compatible endpoint.")
     ap.add_argument("--url", required=True, help="full chat-completions URL")
     ap.add_argument("--api-key", default=os.environ.get("OPENAI_API_KEY", ""))
     ap.add_argument("--model", default="llama-3.2-3b-instruct")
     ap.add_argument("-c", "--concurrency", type=int, default=4)
-    ap.add_argument("-n", "--requests", type=int, default=None,
-                    help="total requests (burst mode)")
-    ap.add_argument("--duration", type=float, default=None,
-                    help="seconds to keep load on (sustained mode)")
+    ap.add_argument("-n", "--requests", type=int, default=None, help="total requests (burst mode)")
+    ap.add_argument("--duration", type=float, default=None, help="seconds to keep load on (sustained mode)")
     ap.add_argument("--prompt-tokens", type=int, default=200)
     ap.add_argument("--max-tokens", type=int, default=128)
     ap.add_argument("--temperature", type=float, default=0.7)
     ap.add_argument("--timeout", type=float, default=180)
-    ap.add_argument("--think-time", type=float, default=0.0,
-                    help="seconds a worker pauses between requests")
+    ap.add_argument("--think-time", type=float, default=0.0, help="seconds a worker pauses between requests")
     ap.add_argument("--out", default=None, help="JSONL of per-request records")
-    ap.add_argument("--tps-file", default=None,
-                    help="sidecar JSON for metrics.py, e.g. /tmp/dllama_tps.json")
+    ap.add_argument("--tps-file", default=None, help="sidecar JSON for metrics.py, e.g. /tmp/dllama_tps.json")
     ap.add_argument("--label", default="", help="free-text tag stored in each record")
     ap.add_argument("--seed", type=int, default=None)
     args = ap.parse_args()
@@ -246,7 +252,7 @@ def main():
     live = Live(args.tps_file)
     records = []
     rec_lock = threading.Lock()
-    out_fh = open(args.out, "a") if args.out else None
+    out_fh = Path(args.out).open("a") if args.out else None  # noqa: SIM115 - closed at exit below
     stop = threading.Event()
 
     deadline = time.time() + args.duration if args.duration else None
@@ -269,8 +275,9 @@ def main():
             prompt = build_prompt(args.prompt_tokens, wrng)
             with live.lock:
                 live.inflight += 1
-            rec = one_request(args.url, args.api_key, args.model, prompt,
-                              args.max_tokens, args.temperature, args.timeout, live)
+            rec = one_request(
+                args.url, args.api_key, args.model, prompt, args.max_tokens, args.temperature, args.timeout, live
+            )
             rec["worker"] = wid
             rec["label"] = args.label
             rec["target_prompt_tokens"] = args.prompt_tokens
@@ -296,25 +303,29 @@ def main():
             done = live.completed
             ttfts = [r["ttft_s"] for r in records if r.get("ttft_s")]
             p50 = pct(ttfts, 50)
-            msg = (f"\r[{int(el)//60:02d}:{int(el)%60:02d}] done={done}/{total} "
-                   f"inflight={live.inflight} err={live.errors} "
-                   f"tok/s(10s)={live.rolling_tps():5.1f} "
-                   f"ttft_p50={p50:.2f}s" if p50 else
-                   f"\r[{int(el)//60:02d}:{int(el)%60:02d}] done={done}/{total} "
-                   f"inflight={live.inflight} err={live.errors} ...")
+            msg = (
+                f"\r[{int(el) // 60:02d}:{int(el) % 60:02d}] done={done}/{total} "
+                f"inflight={live.inflight} err={live.errors} "
+                f"tok/s(10s)={live.rolling_tps():5.1f} "
+                f"ttft_p50={p50:.2f}s"
+                if p50
+                else f"\r[{int(el) // 60:02d}:{int(el) % 60:02d}] done={done}/{total} "
+                f"inflight={live.inflight} err={live.errors} ..."
+            )
             sys.stderr.write(msg.ljust(90))
             sys.stderr.flush()
             stop.wait(2)
 
     print(f"target : {args.url}")
-    print(f"mode   : {'sustained ' + str(args.duration) + 's' if args.duration else str(args.requests) + ' requests'}"
-          f"  concurrency={args.concurrency}  prompt~{args.prompt_tokens}tok  max_tokens={args.max_tokens}")
+    print(
+        f"mode   : {'sustained ' + str(args.duration) + 's' if args.duration else str(args.requests) + ' requests'}"
+        f"  concurrency={args.concurrency}  prompt~{args.prompt_tokens}tok  max_tokens={args.max_tokens}"
+    )
     print()
 
     rep = threading.Thread(target=reporter, daemon=True)
     rep.start()
-    threads = [threading.Thread(target=worker, args=(i,), daemon=True)
-               for i in range(args.concurrency)]
+    threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(args.concurrency)]
     wall0 = time.time()
     for t in threads:
         t.start()
@@ -328,7 +339,7 @@ def main():
             t.join(timeout=args.timeout)
     wall = time.time() - wall0
     stop.set()
-    live.write_sidecar()   # final inflight=0 so metrics.py stops showing a stale rate
+    live.write_sidecar()  # final inflight=0 so metrics.py stops showing a stale rate
     time.sleep(0.1)
     sys.stderr.write("\r".ljust(95) + "\r")
     if out_fh:
@@ -353,12 +364,12 @@ def main():
     line("aggregate throughput", f"{gen_total / wall:.1f} tok/s across {args.concurrency} streams")
     line("requests/min", f"{len(ok) / wall * 60:.1f}")
     if ttfts:
-        line("TTFT p50 / p95 / max", f"{pct(ttfts,50):.2f}s / {pct(ttfts,95):.2f}s / {max(ttfts):.2f}s")
+        line("TTFT p50 / p95 / max", f"{pct(ttfts, 50):.2f}s / {pct(ttfts, 95):.2f}s / {max(ttfts):.2f}s")
     if tpss:
-        line("per-stream tok/s p50/p95", f"{pct(tpss,50):.1f} / {pct(tpss,95):.1f}")
+        line("per-stream tok/s p50/p95", f"{pct(tpss, 50):.1f} / {pct(tpss, 95):.1f}")
         line("per-stream tok/s min", f"{min(tpss):.1f}")
     if totals:
-        line("total latency p50 / p95", f"{pct(totals,50):.1f}s / {pct(totals,95):.1f}s")
+        line("total latency p50 / p95", f"{pct(totals, 50):.1f}s / {pct(totals, 95):.1f}s")
     if ok:
         line("mean gen tokens", f"{statistics.mean(r['gen_tokens'] for r in ok):.0f}")
 
@@ -367,7 +378,7 @@ def main():
         print()
         print("  served by (X-Served-By):")
         for k, v in served.most_common():
-            print(f"    {k:<20} {v:>4}  ({100*v/max(len(records),1):.0f}%)")
+            print(f"    {k:<20} {v:>4}  ({100 * v / max(len(records), 1):.0f}%)")
 
     if bad:
         print()

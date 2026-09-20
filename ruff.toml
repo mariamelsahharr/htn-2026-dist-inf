@@ -1,0 +1,9 @@
+# Lint config for every Python file in the repo: ruff check . && ruff format --check .
+line-length = 120
+target-version = "py311"   # the Pis run 3.11
+
+[lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "C4", "PERF", "PIE", "RUF", "RET", "PTH", "N"]
+
+[lint.per-file-ignores]
+"**/test_*.py" = ["E501"]   # long assertion messages read better on one line

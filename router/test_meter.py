@@ -27,7 +27,7 @@ def test_pi_stream_counts_one_token_per_chunk():
         time.sleep(0.01)
     r = m.result(t0)
     assert (r["gen_tokens"], r["tokens_source"], r["prompt_tokens_actual"]) == (5, "chunks", 20)
-    assert r["prefill_tps"] == 40.0           # 20 prompt tokens over the 0.5 s first-token wait
+    assert r["prefill_tps"] == 40.0  # 20 prompt tokens over the 0.5 s first-token wait
     assert r["decode_tps"] > 0 and r["tps"] > 0
 
 
@@ -45,12 +45,14 @@ def test_cloud_without_usage_estimates_from_chars():
     m.see(chunk("x" * 40))
     r = m.result(time.time() - 1)
     assert (r["gen_tokens"], r["tokens_source"]) == (10, "chars")
-    assert "decode_tps" not in r                      # a single chunk has no inter-token interval
+    assert "decode_tps" not in r  # a single chunk has no inter-token interval
 
 
 def test_blocking_completion_uses_usage_then_text():
     m = TokenMeter(CLOUD, prompt_estimate=5)
-    m.see_completion({"choices": [{"message": {"content": "hi"}}], "usage": {"prompt_tokens": 3, "completion_tokens": 2}})
+    m.see_completion(
+        {"choices": [{"message": {"content": "hi"}}], "usage": {"prompt_tokens": 3, "completion_tokens": 2}}
+    )
     assert m.result(time.time() - 0.5)["gen_tokens"] == 2
     m2 = TokenMeter(LOCAL, prompt_estimate=5)
     m2.see_completion({"choices": [{"message": {"content": "x" * 8, "tool_calls": None}}]})
@@ -59,7 +61,10 @@ def test_blocking_completion_uses_usage_then_text():
 
 def test_tool_call_deltas_count_as_tokens_without_text():
     m = TokenMeter(LOCAL, prompt_estimate=5)
-    m.see("data: " + json.dumps({"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0}]}, "finish_reason": None}]}))
+    m.see(
+        "data: "
+        + json.dumps({"choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0}]}, "finish_reason": None}]})
+    )
     m.see(chunk("ok"))
     assert m.result(time.time() - 1)["gen_tokens"] == 2
 

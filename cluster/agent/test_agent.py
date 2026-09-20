@@ -3,20 +3,25 @@ test_agent.py - the telemetry document from fake sysfs/proc files. Run: pytest -
 """
 
 import json
-import os
 import sys
 import threading
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(__file__))
-import node_agent  # noqa: E402
+sys.path.insert(0, str(Path(__file__).parent))
+import node_agent
 
 
 def fake_fs(tmp_path, throttled="50000"):
-    files = {"temp": "61234\n", "throttled": throttled + "\n",
-             "meminfo": "MemTotal:        8241000 kB\nMemFree:          500000 kB\nMemAvailable:    3195000 kB\n",
-             "loadavg": "3.91 2.10 1.05 2/410 12345\n", "uptime": "8812.55 30000.1\n", "freq": "2400000\n"}
+    files = {
+        "temp": "61234\n",
+        "throttled": throttled + "\n",
+        "meminfo": "MemTotal:        8241000 kB\nMemFree:          500000 kB\nMemAvailable:    3195000 kB\n",
+        "loadavg": "3.91 2.10 1.05 2/410 12345\n",
+        "uptime": "8812.55 30000.1\n",
+        "freq": "2400000\n",
+    }
     paths = {}
     for name, content in files.items():
         p = tmp_path / name
@@ -36,8 +41,12 @@ def test_document_from_sysfs(tmp_path):
 
 
 def test_current_throttle_bits_are_named():
-    assert node_agent.throttle_flags(0x50005) == ["under_voltage", "throttled", "under_voltage_since_boot",
-                                                    "throttled_since_boot"]
+    assert node_agent.throttle_flags(0x50005) == [
+        "under_voltage",
+        "throttled",
+        "under_voltage_since_boot",
+        "throttled_since_boot",
+    ]
     assert node_agent.throttle_flags(0) == []
 
 

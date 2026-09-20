@@ -15,8 +15,15 @@ HEAVY_MARKERS = ("-heavy", ":heavy", "-big", "-cloud")
 # Words in the last user turn that mean "this is a whole-codebase or design task",
 # which a 3B model answers confidently and wrong. Matched case-insensitively.
 COMPLEX_KEYWORDS = (
-    "refactor", "rewrite", "migrate", "architecture", "redesign",
-    "across the codebase", "entire repo", "whole repo", "all files",
+    "refactor",
+    "rewrite",
+    "migrate",
+    "architecture",
+    "redesign",
+    "across the codebase",
+    "entire repo",
+    "whole repo",
+    "all files",
     "from scratch",
 )
 _FENCE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.S)
@@ -45,15 +52,16 @@ def cluster_state(status: dict[str, Any], min_local_nodes: int) -> str:
 @dataclass
 class Tier:
     """One OpenAI-compatible upstream. The policy reads name/model; app.py uses the rest."""
+
     name: str
     model: str
-    base_url: str = ""       # ends in /v1 for every tier, the cluster included
+    base_url: str = ""  # ends in /v1 for every tier, the cluster included
     api_key: str = ""
     handles_tools: bool = False
     is_local: bool = False
-    reasoning_effort: str | None = None   # OpenAI/Gemini knob; some models need "none" to accept tools
-    tools_model: str | None = None        # used instead of `model` when the request carries tools
-    usage_in_stream: bool = False         # tier honours stream_options.include_usage (exact token counts)
+    reasoning_effort: str | None = None  # OpenAI/Gemini knob; some models need "none" to accept tools
+    tools_model: str | None = None  # used instead of `model` when the request carries tools
+    usage_in_stream: bool = False  # tier honours stream_options.include_usage (exact token counts)
 
     def model_for_request(self, with_tools: bool) -> str:
         return self.tools_model if (with_tools and self.tools_model) else self.model
@@ -80,20 +88,21 @@ class Tier:
 @dataclass
 class RouterConfig:
     """Everything the policy needs to know. app.py builds this from env."""
-    size_threshold: int = 2048          # prompt_tokens + max_tokens above this -> cloud
-    cloud_available: bool = True        # False when no Baseten URL/key is configured
+
+    size_threshold: int = 2048  # prompt_tokens + max_tokens above this -> cloud
+    cloud_available: bool = True  # False when no Baseten URL/key is configured
     local_model: str = "llama-3.2-3b-instruct"
     cloud_model: str = "meta-llama/Llama-3.3-70B-Instruct"
     heavy_markers: tuple[str, ...] = HEAVY_MARKERS
-    default_max_tokens: int = 512       # assumed when the client doesn't say
+    default_max_tokens: int = 512  # assumed when the client doesn't say
     tiers: dict[str, Tier] = field(default_factory=dict)  # baseten is synthesised if absent
     local_base_url: str = ""
     cloud_order: tuple[str, ...] = DEFAULT_CLOUD_ORDER
-    heavy_tier: str = BASETEN           # size/health/heavy-tag escalations go here
-    tool_tier: str | None = None     # requests with tool definitions go here
+    heavy_tier: str = BASETEN  # size/health/heavy-tag escalations go here
+    tool_tier: str | None = None  # requests with tool definitions go here
     complex_keywords: tuple[str, ...] = COMPLEX_KEYWORDS
-    code_lines_threshold: int = 120     # fenced code lines in the conversation
-    max_local_turns: int = 12           # messages
+    code_lines_threshold: int = 120  # fenced code lines in the conversation
+    max_local_turns: int = 12  # messages
 
     def __post_init__(self) -> None:
         if self.cloud_available and BASETEN not in self.tiers:
@@ -145,6 +154,7 @@ class Decision:
 
 
 # --------------------------------------------------------------------- tokens
+
 
 def _text_of(content: Any) -> str:
     """Messages may carry a plain string or a list of typed parts."""
@@ -207,16 +217,14 @@ def strip_heavy(model: str, markers: tuple[str, ...] = HEAVY_MARKERS) -> str:
     for marker in markers:
         if marker in m.lower():
             idx = m.lower().index(marker)
-            return (m[:idx] + m[idx + len(marker):]) or m
+            return (m[:idx] + m[idx + len(marker) :]) or m
     return m
 
 
 # ---------------------------------------------------------------- the policy
 
-def route(body: dict[str, Any],
-          headers: dict[str, str],
-          cluster_status: str,
-          cfg: RouterConfig) -> Decision:
+
+def route(body: dict[str, Any], headers: dict[str, str], cluster_status: str, cfg: RouterConfig) -> Decision:
     """Pick the upstream. Priority: force header, tools, cluster health, size,
     complexity, heavy tag / X-Escalate, else cluster. Unconfigured tiers degrade
     to heavy tier, then cluster with `_no_cloud` appended."""
@@ -233,10 +241,15 @@ def route(body: dict[str, Any],
                 upstream = heavy
             else:
                 upstream, reason = CLUSTER, reason + "_no_cloud"
-        return Decision(upstream=upstream, reason=reason,
-                        prompt_tokens=prompt_tokens, max_tokens=max_tokens,
-                        model_requested=model_req, model_sent=cfg.model_for(upstream, bool(body.get("tools"))),
-                        forced=forced)
+        return Decision(
+            upstream=upstream,
+            reason=reason,
+            prompt_tokens=prompt_tokens,
+            max_tokens=max_tokens,
+            model_requested=model_req,
+            model_sent=cfg.model_for(upstream, bool(body.get("tools"))),
+            forced=forced,
+        )
 
     # 0. explicit override (demo control)
     forced = headers.get("x-force-upstream", "").strip().lower()
@@ -273,6 +286,7 @@ def route(body: dict[str, Any],
 
 
 # ------------------------------------------------------------- fallback chain
+
 
 class Breaker:
     """Per-upstream circuit breaker: after `failures` consecutive errors an upstream
@@ -329,8 +343,7 @@ def fallback_chain(decision: Decision, cluster_status: str, cfg: RouterConfig) -
         if name not in chain:
             chain.append(name)
     cluster_ok = (cluster_status or "").lower() in SERVING_STATES
-    if (CLUSTER not in chain and cluster_ok
-            and not decision.reason.startswith(CLUSTER_UNFIT_REASONS)):
+    if CLUSTER not in chain and cluster_ok and not decision.reason.startswith(CLUSTER_UNFIT_REASONS):
         chain.append(CLUSTER)
     return chain
 
@@ -343,10 +356,9 @@ CONTINUATION_INSTRUCTION = (
 )
 
 
-def continuation_body(original: dict[str, Any],
-                      partial_text: str,
-                      model: str,
-                      instruction: str = CONTINUATION_INSTRUCTION) -> dict[str, Any]:
+def continuation_body(
+    original: dict[str, Any], partial_text: str, model: str, instruction: str = CONTINUATION_INSTRUCTION
+) -> dict[str, Any]:
     """Build the cloud request that resumes a stream the cluster dropped halfway.
 
     Once bytes have gone downstream we cannot silently re-run the request: the
@@ -375,8 +387,5 @@ def models_payload(cfg: RouterConfig) -> dict[str, Any]:
                 ids.append(model)
     return {
         "object": "list",
-        "data": [
-            {"id": i, "object": "model", "created": 0, "owned_by": "pi-cluster"}
-            for i in ids
-        ],
+        "data": [{"id": i, "object": "model", "created": 0, "owned_by": "pi-cluster"} for i in ids],
     }

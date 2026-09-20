@@ -21,24 +21,35 @@ import json
 import os
 import time
 from collections import Counter, deque
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 
 import httpx2
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 from responses import ResponseBuilder, error_body, responses_to_chat
-from routing import (BASETEN, CACHE, CLUSTER, DEFAULT_CLOUD_ORDER, Breaker, Decision,
-                     RouterConfig, Tier, cluster_state, continuation_body,
-                     estimate_tokens, fallback_chain, missing_required_tool_call,
-                     models_payload, route)
-
+from routing import (
+    BASETEN,
+    CACHE,
+    CLUSTER,
+    DEFAULT_CLOUD_ORDER,
+    Breaker,
+    Decision,
+    RouterConfig,
+    Tier,
+    cluster_state,
+    continuation_body,
+    estimate_tokens,
+    fallback_chain,
+    missing_required_tool_call,
+    models_payload,
+    route,
+)
 
 # ------------------------------------------------------------------- settings
 
@@ -53,10 +64,11 @@ EXTRA_TIER_DEFAULTS = {
 class Settings(BaseSettings):
     """Every knob, read from env and router/.env (env wins). Field name = env var name."""
 
-    model_config = SettingsConfigDict(env_file=str(Path(__file__).with_name(".env")),
-                                      extra="ignore", env_ignore_empty=True)
+    model_config = SettingsConfigDict(
+        env_file=str(Path(__file__).with_name(".env")), extra="ignore", env_ignore_empty=True
+    )
 
-    local_base_url: str = "http://192.168.50.13:9990"      # pi-node-3, wired; mDNS is not trusted here
+    local_base_url: str = "http://192.168.50.13:9990"  # pi-node-3, wired; mDNS is not trusted here
     local_model: str = "llama-3.2-3b-instruct"
     status_url: str = "http://192.168.50.13:9991/status"
 
@@ -66,7 +78,7 @@ class Settings(BaseSettings):
     openai_base_url: str = EXTRA_TIER_DEFAULTS["openai"]
     openai_api_key: str = ""
     openai_model: str = ""
-    openai_reasoning_effort: str = "none"   # gpt-5.6-luna rejects function tools on chat completions otherwise
+    openai_reasoning_effort: str = "none"  # gpt-5.6-luna rejects function tools on chat completions otherwise
     openai_tools_model: str = ""
     gemini_base_url: str = EXTRA_TIER_DEFAULTS["gemini"]
     gemini_api_key: str = ""
@@ -76,21 +88,21 @@ class Settings(BaseSettings):
     snowflake_base_url: str = ""
     snowflake_api_key: str = ""
     snowflake_model: str = ""
-    snowflake_tools_model: str = ""         # e.g. claude-haiku-4-5; Cortex's Llama/Mistral reject tools
+    snowflake_tools_model: str = ""  # e.g. claude-haiku-4-5; Cortex's Llama/Mistral reject tools
     cloud_tools_model: str = ""
     cloud_tier_order: str = ",".join(DEFAULT_CLOUD_ORDER)
     tool_tier: str = ""
-    stream_usage_tiers: str = "baseten,openai,gemini"   # verified to return usage on the final streamed chunk
+    stream_usage_tiers: str = "baseten,openai,gemini"  # verified to return usage on the final streamed chunk
 
     size_threshold: int = 2048
     first_token_timeout: float = 8.0
     read_timeout: float = 60.0
-    local_read_timeout: float = 600.0   # a blocking cluster call returns nothing until generation ends
-    local_prefill_tps: float = 25.0     # measured prompt-processing rate; scales the first-token wait
+    local_read_timeout: float = 600.0  # a blocking cluster call returns nothing until generation ends
+    local_prefill_tps: float = 25.0  # measured prompt-processing rate; scales the first-token wait
     connect_timeout: float = 3.0
     status_interval: float = 2.0
-    min_local_nodes: int = 2        # a degraded cluster below this many nodes routes to cloud
-    breaker_failures: int = 2       # consecutive cloud-tier errors before it is skipped ...
+    min_local_nodes: int = 2  # a degraded cluster below this many nodes routes to cloud
+    breaker_failures: int = 2  # consecutive cloud-tier errors before it is skipped ...
     breaker_cooldown: float = 30.0  # ... for this many seconds
     decision_log: str = "routing_decisions.jsonl"
     cache_file: str = "demo_cache.json"
@@ -101,16 +113,30 @@ class Settings(BaseSettings):
         tiers: dict[str, Tier] = {}
         usage_tiers = {n.strip().lower() for n in self.stream_usage_tiers.split(",")}
         if self.cloud_base_url and self.cloud_api_key:
-            tiers[BASETEN] = Tier(BASETEN, self.cloud_model, self.cloud_base_url.rstrip("/"), self.cloud_api_key,
-                                  tools_model=self.cloud_tools_model or None, usage_in_stream=BASETEN in usage_tiers)
+            tiers[BASETEN] = Tier(
+                BASETEN,
+                self.cloud_model,
+                self.cloud_base_url.rstrip("/"),
+                self.cloud_api_key,
+                tools_model=self.cloud_tools_model or None,
+                usage_in_stream=BASETEN in usage_tiers,
+            )
         for name in EXTRA_TIER_DEFAULTS:
-            key, model, base = (getattr(self, f"{name}_api_key"), getattr(self, f"{name}_model"),
-                                getattr(self, f"{name}_base_url").rstrip("/"))
+            key, model, base = (
+                getattr(self, f"{name}_api_key"),
+                getattr(self, f"{name}_model"),
+                getattr(self, f"{name}_base_url").rstrip("/"),
+            )
             if key and model and base:
-                tiers[name] = Tier(name, model, base, key,
-                                   reasoning_effort=getattr(self, f"{name}_reasoning_effort", "") or None,
-                                   tools_model=getattr(self, f"{name}_tools_model", "") or None,
-                                   usage_in_stream=name in usage_tiers)
+                tiers[name] = Tier(
+                    name,
+                    model,
+                    base,
+                    key,
+                    reasoning_effort=getattr(self, f"{name}_reasoning_effort", "") or None,
+                    tools_model=getattr(self, f"{name}_tools_model", "") or None,
+                    usage_in_stream=name in usage_tiers,
+                )
         local = self.local_base_url.rstrip("/")
         if not local.endswith("/v1"):
             local += "/v1"
@@ -139,14 +165,14 @@ class State:
     cluster_status: str = "unknown"
     status_detail: dict[str, Any] = field(default_factory=dict)
     status_last_ok: float = 0.0
-    counts: Counter = field(default_factory=Counter)      # (upstream, reason) -> n
-    fallbacks: Counter = field(default_factory=Counter)   # reason -> n
-    served: Counter = field(default_factory=Counter)      # upstream -> n
+    counts: Counter = field(default_factory=Counter)  # (upstream, reason) -> n
+    fallbacks: Counter = field(default_factory=Counter)  # reason -> n
+    served: Counter = field(default_factory=Counter)  # upstream -> n
     http_versions: dict[str, str] = field(default_factory=dict)
     breaker: Breaker = field(default_factory=Breaker)
     cache: dict[str, str] = field(default_factory=dict)
-    recent: deque = field(default_factory=lambda: deque(maxlen=50))   # last served requests, for rates
-    inflight: Counter = field(default_factory=Counter)    # upstream -> requests being answered now
+    recent: deque = field(default_factory=lambda: deque(maxlen=50))  # last served requests, for rates
+    inflight: Counter = field(default_factory=Counter)  # upstream -> requests being answered now
     started: float = field(default_factory=time.time)
 
 
@@ -160,6 +186,7 @@ UPSTREAM_ERRORS = (httpx2.HTTPError, UpstreamError, asyncio.TimeoutError, ValueE
 
 
 # ------------------------------------------------------------------- helpers
+
 
 def _ms(t0: float) -> int:
     return int((time.time() - t0) * 1000)
@@ -219,19 +246,22 @@ def sse(line: str) -> bytes:
 
 def sse_chunk(text: str, model: str, finish: str | None = None) -> bytes:
     obj = {
-        "id": "chatcmpl-router", "object": "chat.completion.chunk",
-        "created": int(time.time()), "model": model,
-        "choices": [{"index": 0, "delta": ({"content": text} if text else {}),
-                     "finish_reason": finish}],
+        "id": "chatcmpl-router",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [{"index": 0, "delta": ({"content": text} if text else {}), "finish_reason": finish}],
     }
     return sse("data: " + json.dumps(obj))
 
 
 def chat_completion(text: str, model: str, id_: str = "chatcmpl-router") -> dict[str, Any]:
     return {
-        "id": id_, "object": "chat.completion", "created": int(time.time()), "model": model,
-        "choices": [{"index": 0, "finish_reason": "stop",
-                     "message": {"role": "assistant", "content": text}}],
+        "id": id_,
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": text}}],
     }
 
 
@@ -251,14 +281,30 @@ def cache_key(body: dict[str, Any]) -> str:
 Attempt = Callable[[str, dict[str, Any]], Awaitable[Any]]
 
 
-RECENT_FIELDS = ("request_id", "served_by", "routed_to", "reason", "fallback", "stream", "latency_ms", "ttft_ms",
-                 "prompt_tokens", "gen_tokens", "tokens_source", "prefill_tps", "decode_tps", "tps",
-                 "nodes_active", "cluster_state", "ts")
+RECENT_FIELDS = (
+    "request_id",
+    "served_by",
+    "routed_to",
+    "reason",
+    "fallback",
+    "stream",
+    "latency_ms",
+    "ttft_ms",
+    "prompt_tokens",
+    "gen_tokens",
+    "tokens_source",
+    "prefill_tps",
+    "decode_tps",
+    "tps",
+    "nodes_active",
+    "cluster_state",
+    "ts",
+)
 
 
 def _percentile(vals: list[float], pct: float) -> float:
     ordered = sorted(vals)
-    return ordered[min(len(ordered) - 1, int(round(pct / 100 * (len(ordered) - 1))))]
+    return ordered[min(len(ordered) - 1, round(pct / 100 * (len(ordered) - 1)))]
 
 
 class TokenMeter:
@@ -333,16 +379,34 @@ class Router:
 
     # ----- bookkeeping ----------------------------------------------------
 
-    def log(self, decision: Decision, served_by: str, *, stream: bool, t0: float,
-            fallback: bool = False, error: str | None = None, **extra: Any) -> None:
-        record = {**decision.as_log(), "served_by": served_by, "stream": stream,
-                  "latency_ms": _ms(t0), "fallback": fallback, "error": error or None, **extra,
-                  "nodes_active": self.st.status_detail.get("nodes_active"), "cluster_state": self.st.cluster_status,
-                  "ts": time.time(), "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())}
+    def log(
+        self,
+        decision: Decision,
+        served_by: str,
+        *,
+        stream: bool,
+        t0: float,
+        fallback: bool = False,
+        error: str | None = None,
+        **extra: Any,
+    ) -> None:
+        record = {
+            **decision.as_log(),
+            "served_by": served_by,
+            "stream": stream,
+            "latency_ms": _ms(t0),
+            "fallback": fallback,
+            "error": error or None,
+            **extra,
+            "nodes_active": self.st.status_detail.get("nodes_active"),
+            "cluster_state": self.st.cluster_status,
+            "ts": time.time(),
+            "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
+        }
         if served_by not in ("none", CACHE):
             self.st.recent.append({k: record[k] for k in RECENT_FIELDS if k in record})
         try:
-            with open(self.s.decision_log, "a") as fh:
+            with Path(self.s.decision_log).open("a") as fh:
                 fh.write(json.dumps(record) + "\n")
         except OSError:
             pass  # never let logging take down a request
@@ -362,10 +426,10 @@ class Router:
                 self.st.status_detail = data if isinstance(data, dict) else {}
                 self.st.cluster_status = cluster_state(self.st.status_detail, self.s.min_local_nodes)
                 self.st.status_last_ok = time.time()
-            except Exception:  # noqa: BLE001 - background loop must survive anything
+            except Exception:
                 try:
                     self.st.cluster_status = await self.probe_root()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     self.st.cluster_status = "unreachable"
             await asyncio.sleep(self.s.status_interval)
 
@@ -384,11 +448,14 @@ class Router:
 
     def fallback_plan(self, body: dict[str, Any], decision: Decision) -> list[tuple[str, dict[str, Any]]]:
         """(upstream, body) per attempt, in routing.fallback_chain order."""
-        return [(up, {**body, "model": self.cfg.model_for(up, bool(body.get("tools")))})
-                for up in fallback_chain(decision, self.st.cluster_status, self.cfg)]
+        return [
+            (up, {**body, "model": self.cfg.model_for(up, bool(body.get("tools")))})
+            for up in fallback_chain(decision, self.st.cluster_status, self.cfg)
+        ]
 
-    async def first_success(self, plan: list[tuple[str, dict[str, Any]]], attempt: Attempt
-                            ) -> tuple[int | None, str | None, Any, str]:
+    async def first_success(
+        self, plan: list[tuple[str, dict[str, Any]]], attempt: Attempt
+    ) -> tuple[int | None, str | None, Any, str]:
         """Run attempt() down the plan, skipping cloud tiers whose breaker is open (a
         forced upstream, or the only candidate, is always tried).
         Returns (index, upstream, result, last_error)."""
@@ -416,8 +483,9 @@ class Router:
         timeout = httpx2.Timeout(connect=self.s.connect_timeout, read=read, write=10.0, pool=10.0)
         self.st.inflight[upstream] += 1
         try:
-            r = await self.client.post(tier.chat_url, json=tier.payload(payload, stream=False),
-                                       headers=tier.headers(), timeout=timeout)
+            r = await self.client.post(
+                tier.chat_url, json=tier.payload(payload, stream=False), headers=tier.headers(), timeout=timeout
+            )
         finally:
             self.st.inflight[upstream] -= 1
         self.st.http_versions[upstream] = r.http_version
@@ -440,8 +508,7 @@ class Router:
     async def sse_stream(self, upstream: str, body: dict[str, Any]) -> AsyncIterator[tuple[bool, str]]:
         """Yield (is_content, sse_line). First-token timeout until content, then read timeout."""
         tier = self.cfg.tier(upstream)
-        timeout = httpx2.Timeout(connect=self.s.connect_timeout, read=self.s.read_timeout,
-                                 write=10.0, pool=10.0)
+        timeout = httpx2.Timeout(connect=self.s.connect_timeout, read=self.s.read_timeout, write=10.0, pool=10.0)
         self.st.inflight[upstream] += 1
         try:
             async for item in self._sse_events(tier, upstream, body, timeout):
@@ -449,10 +516,12 @@ class Router:
         finally:
             self.st.inflight[upstream] -= 1
 
-    async def _sse_events(self, tier: Tier, upstream: str, body: dict[str, Any],
-                          timeout: httpx2.Timeout) -> AsyncIterator[tuple[bool, str]]:
-        async with self.client.sse(tier.chat_url, method="POST", json=tier.payload(body, stream=True),
-                                   headers=tier.headers(), timeout=timeout) as source:
+    async def _sse_events(
+        self, tier: Tier, upstream: str, body: dict[str, Any], timeout: httpx2.Timeout
+    ) -> AsyncIterator[tuple[bool, str]]:
+        async with self.client.sse(
+            tier.chat_url, method="POST", json=tier.payload(body, stream=True), headers=tier.headers(), timeout=timeout
+        ) as source:
             r = source.response
             self.st.http_versions[upstream] = r.http_version
             if r.status_code >= 400:
@@ -469,7 +538,7 @@ class Router:
                 except TimeoutError:
                     raise UpstreamError("first-token timeout" if not got_content else "stream stalled") from None
                 if event.data.strip() == "[DONE]":
-                    continue                      # relay appends its own terminator
+                    continue  # relay appends its own terminator
                 line = "data: " + event.data
                 piece = _content_of(line)
                 if piece is not None:
@@ -484,8 +553,12 @@ class Router:
         msg = choice.get("message") or {}
         if missing_required_tool_call(payload, msg):
             raise UpstreamError("local model answered in prose to a required tool call")
-        base = {"id": data.get("id", "chatcmpl-router"), "object": "chat.completion.chunk",
-                "created": data.get("created", int(time.time())), "model": data.get("model", "")}
+        base = {
+            "id": data.get("id", "chatcmpl-router"),
+            "object": "chat.completion.chunk",
+            "created": data.get("created", int(time.time())),
+            "model": data.get("model", ""),
+        }
 
         def chunk(delta: dict[str, Any], finish: str | None = None) -> str:
             return "data: " + json.dumps({**base, "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]})
@@ -554,14 +627,26 @@ class Router:
             self.st.fallbacks[f"pre_commit:{last_err[:40]}"] += 1
         self.st.served[up] += 1
         ttft = _ms(t0)
-        relay = self.relay(body, decision, gen, buffered, up, ttft=ttft, t0=t0,
-                           fallback=fell_back, last_err=last_err)
-        return StreamingResponse(relay, media_type="text/event-stream",
-                                 headers={**self.headers_for(decision, up, fell_back), "X-Accel-Buffering": "no"})
+        relay = self.relay(body, decision, gen, buffered, up, ttft=ttft, t0=t0, fallback=fell_back, last_err=last_err)
+        return StreamingResponse(
+            relay,
+            media_type="text/event-stream",
+            headers={**self.headers_for(decision, up, fell_back), "X-Accel-Buffering": "no"},
+        )
 
-    async def relay(self, orig: dict[str, Any], decision: Decision, gen: AsyncIterator,
-                    buffered: list[str], served_by: str, *, ttft: int, t0: float,
-                    fallback: bool, last_err: str) -> AsyncIterator[bytes]:
+    async def relay(
+        self,
+        orig: dict[str, Any],
+        decision: Decision,
+        gen: AsyncIterator,
+        buffered: list[str],
+        served_by: str,
+        *,
+        ttft: int,
+        t0: float,
+        fallback: bool,
+        last_err: str,
+    ) -> AsyncIterator[bytes]:
         partial: list[str] = []
         finished = False
         meter = TokenMeter(self.cfg.tier(served_by), decision.prompt_tokens, t_first=t0 + ttft / 1000.0)
@@ -584,13 +669,25 @@ class Router:
             async for _is_content, line in gen:
                 yield forward(line)
             yield sse("data: [DONE]")
-            self.log(decision, served_by, stream=True, t0=t0, fallback=fallback, error=last_err,
-                     ttft_ms=ttft, gen_chars=sum(len(p) for p in partial), **meter.result(t0))
+            self.log(
+                decision,
+                served_by,
+                stream=True,
+                t0=t0,
+                fallback=fallback,
+                error=last_err,
+                ttft_ms=ttft,
+                gen_chars=sum(len(p) for p in partial),
+                **meter.result(t0),
+            )
         except UPSTREAM_ERRORS as e:
             err, text, recovered = _err(e), "".join(partial), False
             # no continuation onto a forced upstream, or onto an answer that already finished
-            cont_tier = None if (decision.forced or finished) else next(
-                (n for n in self.cfg.cloud_tiers() if n != served_by), None)
+            cont_tier = (
+                None
+                if (decision.forced or finished)
+                else next((n for n in self.cfg.cloud_tiers() if n != served_by), None)
+            )
             if cont_tier:
                 self.st.fallbacks[f"mid_stream:{err[:40]}"] += 1
                 try:
@@ -601,11 +698,21 @@ class Router:
                 except UPSTREAM_ERRORS as e2:
                     err += f" | continuation failed: {e2}"[:120]
             yield sse("data: [DONE]")
-            self.log(decision, served_by, stream=True, t0=t0, fallback=True, ttft_ms=ttft,
-                     gen_chars=len(text), mid_stream_error=err, recovered=recovered, **meter.result(t0))
+            self.log(
+                decision,
+                served_by,
+                stream=True,
+                t0=t0,
+                fallback=True,
+                ttft_ms=ttft,
+                gen_chars=len(text),
+                mid_stream_error=err,
+                recovered=recovered,
+                **meter.result(t0),
+            )
         finally:
             with contextlib.suppress(Exception):
-                await gen.aclose()   # client hung up: release the upstream connection now
+                await gen.aclose()  # client hung up: release the upstream connection now
 
     # ----- Responses API (Codex) -------------------------------------------
 
@@ -621,13 +728,15 @@ class Router:
             i, up, data, last_err = await self.first_success(plan, self.post_blocking)
             if data is None:
                 self.log(decision, "none", stream=False, t0=t0, fallback=True, error=last_err, api="responses")
-                return JSONResponse(error_body(f"all upstreams failed: {last_err}"), status_code=502,
-                                    headers={"X-Served-By": "none"})
+                return JSONResponse(
+                    error_body(f"all upstreams failed: {last_err}"), status_code=502, headers={"X-Served-By": "none"}
+                )
             self.st.served[up] += 1
             meter = TokenMeter(self.cfg.tier(up), decision.prompt_tokens)
             meter.see_completion(data)
-            self.log(decision, up, stream=False, t0=t0, fallback=i > 0, error=last_err, api="responses",
-                     **meter.result(t0))
+            self.log(
+                decision, up, stream=False, t0=t0, fallback=i > 0, error=last_err, api="responses", **meter.result(t0)
+            )
             for _ in builder.feed(data):
                 pass
             return JSONResponse(builder.response_object(), headers=self.headers_for(decision, up, i > 0))
@@ -635,8 +744,9 @@ class Router:
         i, up, acquired, last_err = await self.first_success(plan, self.acquire)
         if acquired is None:
             self.log(decision, "none", stream=True, t0=t0, fallback=True, error=last_err, api="responses")
-            return JSONResponse(error_body(f"all upstreams failed: {last_err}"), status_code=502,
-                                headers={"X-Served-By": "none"})
+            return JSONResponse(
+                error_body(f"all upstreams failed: {last_err}"), status_code=502, headers={"X-Served-By": "none"}
+            )
         gen, buffered = acquired
         fell_back = i > 0
         if fell_back:
@@ -660,19 +770,42 @@ class Router:
                         yield ev.encode()
                 for ev in builder.finish():
                     yield ev.encode()
-                self.log(decision, up, stream=True, t0=t0, fallback=fell_back, error=last_err,
-                         api="responses", ttft_ms=ttft, gen_chars=len("".join(builder.text)), **meter.result(t0))
+                self.log(
+                    decision,
+                    up,
+                    stream=True,
+                    t0=t0,
+                    fallback=fell_back,
+                    error=last_err,
+                    api="responses",
+                    ttft_ms=ttft,
+                    gen_chars=len("".join(builder.text)),
+                    **meter.result(t0),
+                )
             except UPSTREAM_ERRORS as e:
                 for ev in builder.finish(error=_err(e)):
                     yield ev.encode()
-                self.log(decision, up, stream=True, t0=t0, fallback=True, api="responses",
-                         ttft_ms=ttft, mid_stream_error=_err(e), recovered=False, **meter.result(t0))
+                self.log(
+                    decision,
+                    up,
+                    stream=True,
+                    t0=t0,
+                    fallback=True,
+                    api="responses",
+                    ttft_ms=ttft,
+                    mid_stream_error=_err(e),
+                    recovered=False,
+                    **meter.result(t0),
+                )
             finally:
                 with contextlib.suppress(Exception):
                     await gen.aclose()
 
-        return StreamingResponse(events(), media_type="text/event-stream",
-                                 headers={**self.headers_for(decision, up, fell_back), "X-Accel-Buffering": "no"})
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={**self.headers_for(decision, up, fell_back), "X-Accel-Buffering": "no"},
+        )
 
     @staticmethod
     def _feed_line(builder: ResponseBuilder, line: str) -> Iterator[str]:
@@ -682,13 +815,15 @@ class Router:
         chunk = _chunk_of(line)
         return builder.feed(chunk) if chunk is not None else iter(())
 
-    def cached_or_error(self, orig: dict[str, Any], decision: Decision, *, stream: bool,
-                        last_err: str, t0: float):
+    def cached_or_error(self, orig: dict[str, Any], decision: Decision, *, stream: bool, last_err: str, t0: float):
         cached = self.st.cache.get(cache_key(orig)) if self.s.demo_fallback else None
         if not cached:
             self.log(decision, "none", stream=stream, t0=t0, fallback=True, error=last_err)
-            return JSONResponse({"error": {"message": f"all upstreams failed: {last_err}"}},
-                                status_code=502, headers={"X-Served-By": "none"})
+            return JSONResponse(
+                {"error": {"message": f"all upstreams failed: {last_err}"}},
+                status_code=502,
+                headers={"X-Served-By": "none"},
+            )
         self.st.served[CACHE] += 1
         self.log(decision, CACHE, stream=stream, t0=t0, fallback=True, error=last_err)
         headers = self.headers_for(decision, CACHE, True)
@@ -698,7 +833,7 @@ class Router:
         async def typed() -> AsyncIterator[bytes]:
             for i, w in enumerate(cached.split(" ")):
                 yield sse_chunk((" " if i else "") + w, decision.model_sent)
-                await asyncio.sleep(0.02)   # looks like generation, not a paste
+                await asyncio.sleep(0.02)  # looks like generation, not a paste
             yield sse_chunk("", decision.model_sent, finish="stop")
             yield sse("data: [DONE]")
 
@@ -740,14 +875,16 @@ class Router:
 
 # ----------------------------------------------------------------------- app
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = load_settings()
     # http2: cloud tiers multiplex on one connection; the Pi root falls back to 1.1
     client = httpx2.AsyncClient(
-        limits=httpx2.Limits(max_connections=64, max_keepalive_connections=16), http2=True,
-        timeout=httpx2.Timeout(connect=settings.connect_timeout, read=settings.read_timeout,
-                               write=10.0, pool=10.0))
+        limits=httpx2.Limits(max_connections=64, max_keepalive_connections=16),
+        http2=True,
+        timeout=httpx2.Timeout(connect=settings.connect_timeout, read=settings.read_timeout, write=10.0, pool=10.0),
+    )
     router = Router(settings, client)
     app.state.router = router
     task = asyncio.create_task(router.poll_status())
@@ -809,4 +946,5 @@ async def responses(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
