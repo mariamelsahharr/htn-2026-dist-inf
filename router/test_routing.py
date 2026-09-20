@@ -169,18 +169,18 @@ def test_keyword_only_counts_in_the_last_user_turn():
 
 
 def test_large_pasted_code_escalates():
-    code = "```python\n" + "x = 1\n" * 200 + "```"
+    code = "```python\n" + "x = 1\n" * 500 + "```"
     d = route(body("fix this: " + code), {}, "healthy", CFG)
     assert d.upstream == BASETEN and d.reason == "complex_task_code"
 
 
-def test_small_snippet_stays_local():
-    code = "```python\n" + "x = 1\n" * 10 + "```"
+def test_an_ordinary_paste_stays_local():
+    code = "```python\n" + "x = 1\n" * 200 + "```"  # a real file, still fine for a small model
     assert route(body("fix this: " + code), {}, "healthy", CFG).upstream == CLUSTER
 
 
 def test_long_agent_session_escalates():
-    msgs = [{"role": "user" if i % 2 == 0 else "assistant", "content": "ok"} for i in range(14)]
+    msgs = [{"role": "user" if i % 2 == 0 else "assistant", "content": "ok"} for i in range(44)]
     d = route({"messages": msgs}, {}, "healthy", CFG)
     assert d.upstream == BASETEN and d.reason == "complex_task_turns"
 

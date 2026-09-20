@@ -77,7 +77,10 @@ class Tier:
 class RouterConfig:
     """Everything the policy needs to know. app.py builds this from env."""
 
-    size_threshold: int = 2048  # prompt_tokens + max_tokens above this -> cloud
+    # prompt_tokens + max_tokens above this -> cloud. The cluster runs dllama with
+    # --max-seq-len 4096, so this is "will it fit the context", with room for the estimate
+    # being ~15% off; anything that fits stays local, however long it reads.
+    size_threshold: int = 3584
     cloud_available: bool = True  # False when no Baseten URL/key is configured
     local_model: str = "qwen3-30b-a3b"
     cloud_model: str = "meta-llama/Llama-3.3-70B-Instruct"
@@ -88,8 +91,10 @@ class RouterConfig:
     cloud_order: tuple[str, ...] = DEFAULT_CLOUD_ORDER
     heavy_tier: str | None = None  # size/health/heavy-tag escalations go here; default: the first cloud tier
     tool_tier: str | None = None  # requests with tool definitions go here
-    code_lines_threshold: int = 120  # fenced code lines in the conversation
-    max_local_turns: int = 12  # messages
+    # "too complex for a small model" is meant to catch the outliers only: a few hundred
+    # lines of pasted code or a very long back-and-forth, not an ordinary paste or chat.
+    code_lines_threshold: int = 400  # fenced code lines in the conversation
+    max_local_turns: int = 40  # messages
     catalogs: dict[str, tuple[str, ...]] = field(default_factory=dict)  # tier -> every model it offers
 
     def __post_init__(self) -> None:

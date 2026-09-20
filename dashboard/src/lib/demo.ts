@@ -8,15 +8,15 @@ export const DEMO_PROMPTS: { label: string; hint: string; text: string }[] = [
   { label: "Short question", hint: "stays on the Pis", text: "What is a Raspberry Pi? One sentence." },
   {
     label: "Long prompt",
-    hint: "over the size limit, goes to the cloud",
-    text: `Summarise this in two sentences:\n\n${PARAGRAPH.repeat(45)}`,
+    hint: "does not fit the Pis' 4096-token context, goes to the cloud",
+    text: `Summarise this in two sentences:\n\n${PARAGRAPH.repeat(80)}`,
   },
   {
     label: "Pasted code",
-    hint: "too much code for the Pis",
+    hint: "hundreds of lines of code, too complex for the Pis",
     text:
       "Explain what this does in one paragraph:\n\n```python\n" +
-      Array.from({ length: 130 }, (_, i) => `def step_${i}(x):\n    return x + ${i}`).join("\n") +
+      Array.from({ length: 260 }, (_, i) => `def step_${i}(x):\n    return x + ${i}`).join("\n") +
       "\n```",
   },
 ]

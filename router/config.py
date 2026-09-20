@@ -62,7 +62,9 @@ class Settings(BaseSettings):
     router_api_key: SecretStr = SecretStr("")  # when set, /v1/chat/completions and /v1/responses need it as a Bearer
     cors_origins: CommaList = ["*"]
 
-    size_threshold: int = Field(2048, gt=0)
+    size_threshold: int = Field(3584, gt=0)  # prompt + max_tokens that still fits the cluster's 4096 context
+    code_lines_threshold: int = Field(400, gt=0)  # fenced code lines before a request counts as complex
+    max_local_turns: int = Field(40, gt=0)  # messages in the conversation before it counts as complex
     first_token_timeout: float = Field(8.0, gt=0)
     read_timeout: float = Field(60.0, gt=0)
     local_read_timeout: float = Field(600.0, gt=0)  # a blocking cluster call returns nothing until generation ends
@@ -133,6 +135,8 @@ class Settings(BaseSettings):
             local += "/v1"
         return RouterConfig(
             size_threshold=self.size_threshold,
+            code_lines_threshold=self.code_lines_threshold,
+            max_local_turns=self.max_local_turns,
             cloud_available=bool(tiers),
             local_model=self.local_model,
             cloud_model=self.cloud_model,

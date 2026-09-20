@@ -22,11 +22,11 @@ function Empty() {
       <ul className="text-muted-foreground mt-4 space-y-2 text-left text-sm">
         <li className="flex items-start gap-2">
           <span className="mt-1.5 size-2 shrink-0 rounded-full" style={{ backgroundColor: colorFor("cluster") }} />
-          Short questions stay on the Pis.
+          Anything that fits the Pis&apos; context stays on the Pis.
         </li>
         <li className="flex items-start gap-2">
           <span className="mt-1.5 size-2 shrink-0 rounded-full" style={{ backgroundColor: colorFor("openai") }} />
-          Long prompts, pasted code, or a cluster that is down go to the cloud.
+          Prompts too long for it, hundreds of lines of code, or a cluster that is down go to the cloud.
         </li>
         <li className="flex items-start gap-2">
           <span className="text-warn mt-0.5 shrink-0 text-xs">↳</span>
