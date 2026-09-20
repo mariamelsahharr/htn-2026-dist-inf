@@ -68,7 +68,18 @@ function Bubble({ m }: { m: Message }) {
           {m.served?.reason && <span className="text-muted-foreground text-xs">{whyRouted(m.served.reason)}</span>}
           {m.ms != null && <span className="text-muted-foreground text-xs">{m.ms} ms</span>}
         </div>
-        <div className="whitespace-pre-wrap">{text || (m.text ? "thinking" : "")}</div>
+        {text ? (
+          <div className="whitespace-pre-wrap">{text}</div>
+        ) : m.ms == null ? (
+          <div className="text-muted-foreground">{m.text ? "thinking" : ""}</div>
+        ) : m.text ? (
+          // The stream ended inside the model's reasoning: show what it was thinking rather
+          // than an answer that never came, and say so.
+          <div>
+            <div className="text-muted-foreground text-xs">Ran out of answer while still thinking. Its reasoning so far:</div>
+            <div className="text-muted-foreground mt-1 whitespace-pre-wrap italic">{m.text.replace(/<\/?think>/g, "").trim()}</div>
+          </div>
+        ) : null}
         {m.error && <div className="text-critical mt-1 text-xs">{m.error}</div>}
       </div>
     </div>

@@ -402,6 +402,66 @@ def test_tier_reasoning_effort_is_added_only_when_set():
     assert "reasoning_effort" not in Tier("gemini", "g", "https://x/v1", "k").payload({"messages": []})
 
 
+def test_local_payload_flattens_a_conversation_into_one_message():
+    """dllama-api templates multi-turn bodies wrongly (an assistant header after every message),
+    so the cluster gets one user message carrying the earlier turns as text."""
+    t = Tier("cluster", "qwen", "http://pi:9990/v1", is_local=True)
+    msgs = [
+        {"role": "system", "content": "Be brief."},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": [{"type": "text", "text": "Hello!"}]},
+        {"role": "user", "content": "yo"},
+    ]
+    out = t.payload({"messages": msgs}, stream=True)["messages"]
+    assert len(out) == 1 and out[0]["role"] == "user"
+    assert (
+        out[0]["content"]
+        == "Earlier in this conversation:\nInstructions: Be brief.\n\nUser: hi\n\nAssistant: Hello!\n\nUser: yo"
+    )
+
+
+def test_local_history_is_bounded_newest_first():
+    t = Tier("cluster", "qwen", "http://pi:9990/v1", is_local=True, history_chars=20)
+    msgs = [
+        {"role": "user", "content": "x" * 30},  # too old to fit
+        {"role": "assistant", "content": "short answer"},
+        {"role": "user", "content": "next"},
+    ]
+    out = t.payload({"messages": msgs})["messages"][0]["content"]
+    assert out == "Earlier in this conversation:\nAssistant: short answer\n\nUser: next"
+    none = Tier("cluster", "qwen", "http://pi:9990/v1", is_local=True, history_chars=0)
+    assert none.payload({"messages": msgs})["messages"] == [{"role": "user", "content": "next"}]
+
+
+def test_local_payload_leaves_a_single_message_and_tool_traffic_alone():
+    t = Tier("cluster", "qwen", "http://pi:9990/v1", is_local=True)
+    assert t.payload({"messages": [{"role": "user", "content": "hi"}]})["messages"] == [
+        {"role": "user", "content": "hi"}
+    ]
+    tools = [
+        {"role": "user", "content": "run it"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "c1"}]},
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+        {"role": "user", "content": "and?"},
+    ]
+    assert t.payload({"messages": tools})["messages"] == tools
+    ending_in_assistant = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "Hel"}]
+    assert t.payload({"messages": ending_in_assistant})["messages"] == ending_in_assistant
+
+
+def test_local_no_think_is_opt_in_and_cloud_tiers_never_touch_messages():
+    local = Tier("cluster", "qwen", "http://pi:9990/v1", is_local=True, no_think=True)
+    assert local.payload({"messages": [{"role": "user", "content": "hi"}]})["messages"][0]["content"] == "hi /no_think"
+    cfg = RouterConfig(cloud_available=False)
+    assert cfg.local_tier.no_think is False and cfg.local_tier.history_chars == 1500
+    msgs = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "Hello"},
+        {"role": "user", "content": "yo"},
+    ]
+    assert Tier("gemini", "g", "https://x/v1", "k", no_think=True).payload({"messages": msgs})["messages"] == msgs
+
+
 def test_models_payload_lists_every_configured_tier():
     ids = [m["id"] for m in models_payload(tiered())["data"]]
     assert "big-70b" in ids and "gpt-x" in ids and "gemini-x" in ids

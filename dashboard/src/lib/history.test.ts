@@ -12,6 +12,11 @@ describe("recentHistory", () => {
     const history = recentHistory([msg("user", "x".repeat(9000)), msg("assistant", "long answer"), msg("user", "short?"), msg("assistant", "short.")], "next", 100)
     expect(history.map((m) => m.content)).toEqual(["long answer", "short?", "short.", "next"])
   })
+  it("sends earlier answers back verbatim so the Pis' prompt cache still matches", () => {
+    const answer = "<think>\ngreet them\n</think>\n\nHi there!"
+    const history = recentHistory([msg("user", "hi"), msg("assistant", answer)], "yo")
+    expect(history[1].content).toBe(answer)
+  })
   it("skips failed and empty turns", () => {
     const history = recentHistory([msg("user", "a"), msg("assistant", "", "Stopped."), msg("assistant", "")], "b")
     expect(history.map((m) => m.content)).toEqual(["a", "b"])

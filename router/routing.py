@@ -50,6 +50,8 @@ class Tier:
     reasoning_effort: str | None = None  # OpenAI/Gemini knob; some models need "none" to accept tools
     tools_model: str | None = None  # used instead of `model` when the request carries tools
     usage_in_stream: bool = False  # tier honours stream_options.include_usage (exact token counts)
+    no_think: bool = False  # local only: Qwen3's /no_think switch, answer without a reasoning block
+    history_chars: int = 1500  # local only: how much earlier conversation goes along, see flatten_for_local
 
     def model_for_request(self, with_tools: bool) -> str:
         return self.tools_model if (with_tools and self.tools_model) else self.model
@@ -60,6 +62,8 @@ class Tier:
 
     def payload(self, body: dict[str, Any], **overrides: Any) -> dict[str, Any]:
         out = {**body, **overrides}
+        if self.is_local:
+            out["messages"] = flatten_for_local(out.get("messages") or [], self.history_chars, self.no_think)
         if self.reasoning_effort:
             out["reasoning_effort"] = self.reasoning_effort
         if out.get("stream") and self.usage_in_stream:
@@ -86,6 +90,8 @@ class RouterConfig:
     cloud_model: str = "meta-llama/Llama-3.3-70B-Instruct"
     heavy_markers: tuple[str, ...] = HEAVY_MARKERS
     default_max_tokens: int = 512  # assumed when the client doesn't say
+    local_no_think: bool = False  # opt in: Qwen3 answers without its reasoning block (see flatten_for_local)
+    local_history_chars: int = 1500  # earlier conversation sent to the cluster, as text; bounds its prefill
     tiers: dict[str, Tier] = field(default_factory=dict)  # baseten is synthesised if absent
     local_base_url: str = ""
     cloud_order: tuple[str, ...] = DEFAULT_CLOUD_ORDER
@@ -115,7 +121,14 @@ class RouterConfig:
 
     @property
     def local_tier(self) -> Tier:
-        return Tier(CLUSTER, self.local_model, self.local_base_url, is_local=True)
+        return Tier(
+            CLUSTER,
+            self.local_model,
+            self.local_base_url,
+            is_local=True,
+            no_think=self.local_no_think,
+            history_chars=self.local_history_chars,
+        )
 
     def tier(self, upstream: str) -> Tier:
         if upstream == CLUSTER:
@@ -186,6 +199,44 @@ def _text_of(content: Any) -> str:
                 out.append(part)
         return " ".join(out)
     return str(content)
+
+
+NO_THINK = "/no_think"
+FLATTEN_LABELS = {"system": "Instructions", "user": "User", "assistant": "Assistant"}
+
+
+def flatten_for_local(
+    messages: list[dict[str, Any]], history_chars: int, no_think: bool = False
+) -> list[dict[str, Any]]:
+    """One user message for the cluster. dllama-api at the pinned commit templates a multi-turn
+    ChatML body with the assistant generation header after every message, so anything beyond a
+    single message reaches Qwen3 garbled and it stops early or drifts (the root's log shows the
+    prompt). Earlier turns go in as plain text, newest first until history_chars is spent, which
+    also bounds the Pis' prefill since a fresh message never hits their prompt cache. Tool
+    traffic and a body that does not end in a user turn are left alone. no_think appends
+    Qwen3's /no_think switch: the answer comes straight away, without a <think> block."""
+    if any(m.get("role") == "tool" or m.get("tool_calls") for m in messages):
+        return messages
+    turns = [m for m in messages if m.get("role") in FLATTEN_LABELS]
+    if not turns or turns[-1].get("role") != "user":
+        return messages
+    *earlier, last = turns
+    lines: list[str] = []
+    used = 0
+    for m in reversed(earlier):
+        text = _text_of(m.get("content")).strip()
+        if not text:
+            continue
+        if used + len(text) > history_chars:
+            break
+        used += len(text)
+        lines.insert(0, f"{FLATTEN_LABELS[m['role']]}: {text}")
+    text = _text_of(last.get("content")).strip()
+    if lines:
+        text = "Earlier in this conversation:\n" + "\n\n".join(lines) + "\n\nUser: " + text
+    if no_think:
+        text += f" {NO_THINK}"
+    return [{"role": "user", "content": text}]
 
 
 def estimate_tokens(messages: list[dict[str, Any]]) -> int:

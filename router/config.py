@@ -77,6 +77,8 @@ class Settings(BaseSettings):
     status_grace_s: float = Field(10.0, ge=0)
     min_local_nodes: int = Field(2, ge=1)  # a degraded cluster below this many nodes routes to cloud
     local_concurrency: int = Field(1, ge=1)  # the Pi API is single-threaded; more than this only queues
+    local_no_think: bool = False  # opt in: Qwen3 on the Pis answers without its reasoning block
+    local_history_chars: int = Field(1500, ge=0)  # earlier conversation sent to the cluster as text (see routing)
     local_queue_max: int = Field(2, ge=0)  # requests allowed to wait for the cluster before spilling to cloud
     attempt_budget_s: float = Field(90.0, gt=0)  # total time across fallback attempts before giving up
     breaker_failures: int = Field(2, ge=1)  # consecutive cloud-tier errors before it is skipped ...
@@ -143,6 +145,8 @@ class Settings(BaseSettings):
             max_local_turns=self.max_local_turns,
             cloud_available=bool(tiers),
             local_model=self.local_model,
+            local_no_think=self.local_no_think,
+            local_history_chars=self.local_history_chars,
             cloud_model=self.cloud_model,
             tiers=tiers,
             local_base_url=local,
