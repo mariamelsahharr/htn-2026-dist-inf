@@ -2,10 +2,10 @@
 """
 attest.py - mirrors cluster control-plane events onto the cluster_attest program.
 
-The router runs an Attestor in a background thread when SOLANA_KEYPAIR is set: every
-worker-set change seen in the supervisor's status becomes a SetWorkerSet transaction
-and every finished answer a CommitJob. Signatures land in attestations.jsonl with
-Explorer links. Standalone, for debugging or a second box:
+The router runs an Attestor as a task on its event loop when SOLANA_KEYPAIR is set:
+every worker-set change seen in the supervisor's status becomes a SetWorkerSet
+transaction and every finished answer a CommitJob. Signatures land in
+attestations.jsonl with Explorer links. Standalone, for debugging or a second box:
 
     ./attest.py --show                       # decode the on-chain Cluster account
     ./attest.py --status-url ... --decision-log ...   # follow the files instead of the router
@@ -13,24 +13,31 @@ Explorer links. Standalone, for debugging or a second box:
 
 import argparse
 import asyncio
+import contextlib
 import hashlib
 import json
+import logging
 import os
-import queue
 import sys
-import threading
 import time
 from collections import deque
-from collections.abc import Callable, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
 import httpx2
+import logs
 from construct import Bytes, Flag, Int8ul, Int32ul, Int64ul, PascalString, PrefixedArray, Struct, Switch, this
 from solana.exceptions import SolanaRpcException
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Confirmed
+from solana.rpc.core import (
+    RPCException,
+    RPCNoResultException,
+    TransactionExpiredBlockheightExceededError,
+    UnconfirmedTxError,
+)
 from solana.rpc.models import TxOpts
 from solders.instruction import AccountMeta, Instruction
 from solders.keypair import Keypair
@@ -38,11 +45,26 @@ from solders.pubkey import Pubkey
 from solders.system_program import ID as SYSTEM_PROGRAM
 from solders.transaction import Transaction
 
+log = logging.getLogger(__name__)
+
 DEVNET = "https://api.devnet.solana.com"
 STATE_CODES = {"down": 0, "healthy": 1, "degraded": 2, "restarting": 3}
 STATE_NAMES = {v: k for k, v in STATE_CODES.items()}
 HERE = Path(__file__).resolve().parent
 PROGRAM_KEYPAIR = HERE.parent / "solana" / "program" / "target" / "deploy" / "cluster_attest-keypair.json"
+
+# Everything solana-py raises for a failed call: transport (SolanaRpcException), an RPC error
+# result such as a preflight failure (RPCException), no result, and the two confirmation timeouts.
+RPC_ERRORS = (
+    SolanaRpcException,
+    RPCException,
+    RPCNoResultException,
+    UnconfirmedTxError,
+    TransactionExpiredBlockheightExceededError,
+    TimeoutError,
+)
+# A transaction the program rejected for good, or one already landed: retrying cannot help.
+FINAL_REJECTION_MARKERS = ("already in use", "custom program error")
 
 # ----- wire format: the borsh layouts declared in solana/program/src/lib.rs ----------
 # borsh is little-endian; strings and vectors carry a u32 length; an enum is a u8 tag.
@@ -162,33 +184,41 @@ class LogTail:
 
 
 class RecordQueue:
-    """In-process source: the router's log() pushes records, the attestor thread drains them."""
+    """In-process source: the router's log() pushes records on the loop, the attestor drains them."""
 
-    def __init__(self) -> None:
-        self.q: queue.SimpleQueue = queue.SimpleQueue()
+    def __init__(self, maxsize: int = 1000) -> None:
+        self.q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=maxsize)
+        self.dropped = 0
 
     def push(self, rec: dict[str, Any]) -> None:
-        self.q.put(rec)
+        try:
+            self.q.put_nowait(rec)
+        except asyncio.QueueFull:
+            self.dropped += 1
+            log.warning("attestation queue full (%d): dropping record %s", self.q.maxsize, rec.get("request_id"))
 
     def read(self) -> list[dict[str, Any]]:
         out = []
         while True:
             try:
                 out.append(self.q.get_nowait())
-            except queue.Empty:
+            except asyncio.QueueEmpty:
                 return out
 
 
-def http_status_source(url: str, http: httpx2.Client | None = None) -> Callable[[], dict[str, Any] | None]:
-    client = http or httpx2.Client(timeout=3.0)
+StatusSource = Callable[[], Awaitable[dict[str, Any] | None]]
 
-    def fetch() -> dict[str, Any] | None:
+
+def http_status_source(url: str, http: httpx2.AsyncClient | None = None) -> StatusSource:
+    client = http or httpx2.AsyncClient(timeout=3.0)
+
+    async def fetch() -> dict[str, Any] | None:
         try:
-            r = client.get(url)
+            r = await client.get(url)
             r.raise_for_status()
             data = r.json()
             return data if isinstance(data, dict) else None
-        except Exception:
+        except (httpx2.HTTPError, ValueError):
             return None
 
     return fetch
@@ -208,71 +238,62 @@ class ChainLike(Protocol):
     payer: Keypair
     program_id: Pubkey
 
-    def account_data(self, pubkey: Pubkey) -> bytes | None: ...
+    async def account_data(self, pubkey: Pubkey) -> bytes | None: ...
 
-    def send(self, data: bytes, accounts: list[AccountMeta], timeout: float = 60.0) -> str: ...
+    async def send(self, data: bytes, accounts: list[AccountMeta]) -> str: ...
+
+    async def close(self) -> None: ...
 
 
 class Chain:
-    """solana-py's AsyncClient behind a synchronous face, because the attestor runs on a
-    plain thread. One private event loop, one client, a request-rate cap for the public
-    Devnet endpoint."""
+    """solana-py's AsyncClient on the caller's event loop, every failure a ChainError,
+    with a request-rate cap for the public Devnet endpoint."""
 
     def __init__(self, rpc_url: str, payer: Keypair, program_id: Pubkey, rate_limit: float = 4.0) -> None:
         self.rpc_url, self.payer, self.program_id = rpc_url, payer, program_id
-        self.rate_limit = rate_limit
-        self._loop = asyncio.new_event_loop()
-        self._client: AsyncClient | None = None
+        self.client = AsyncClient(
+            rpc_url, commitment=Confirmed, rate_limit=rate_limit, max_transport_retries=3, timeout=20.0
+        )
 
-    async def _connected(self) -> AsyncClient:
-        if self._client is None:
-            self._client = AsyncClient(
-                self.rpc_url, commitment=Confirmed, rate_limit=self.rate_limit, max_transport_retries=3, timeout=20.0
-            )
-        return self._client
+    async def close(self) -> None:
+        await self.client.close()
 
-    def _run(self, coro: Coroutine[Any, Any, Any]) -> Any:
+    @contextlib.asynccontextmanager
+    async def _translated(self) -> AsyncIterator[None]:
         try:
-            return self._loop.run_until_complete(coro)
-        except SolanaRpcException as e:
-            raise ChainError(str(e)) from e
-        except TimeoutError as e:
-            raise ChainError("transaction not confirmed in time") from e
+            yield
+        except RPC_ERRORS as e:
+            raise ChainError(f"{type(e).__name__}: {e}") from e
 
-    def account_data(self, pubkey: Pubkey) -> bytes | None:
-        async def go() -> bytes | None:
-            resp = await (await self._connected()).get_account_info(pubkey, encoding="base64")
+    async def account_data(self, pubkey: Pubkey) -> bytes | None:
+        async with self._translated():
+            resp = await self.client.get_account_info(pubkey, encoding="base64")
             return bytes(resp.value.data) if resp.value else None
 
-        return self._run(go())
-
-    def send(self, data: bytes, accounts: list[AccountMeta], timeout: float = 60.0) -> str:
-        async def go() -> str:
-            client = await self._connected()
-            blockhash = (await client.get_latest_blockhash()).value.blockhash
+    async def send(self, data: bytes, accounts: list[AccountMeta]) -> str:
+        """Sign, send with preflight, and wait for confirmation until the blockhash expires."""
+        async with self._translated():
+            latest = (await self.client.get_latest_blockhash()).value
             ix = Instruction(self.program_id, data, accounts)
-            tx = Transaction.new_signed_with_payer([ix], self.payer.pubkey(), [self.payer], blockhash)
-            sig = (await client.send_raw_transaction(bytes(tx), opts=TxOpts(preflight_commitment=Confirmed))).value
-            resp = await asyncio.wait_for(client.confirm_transaction(sig, Confirmed), timeout=timeout)
+            tx = Transaction.new_signed_with_payer([ix], self.payer.pubkey(), [self.payer], latest.blockhash)
+            opts = TxOpts(skip_confirmation=True, preflight_commitment=Confirmed)
+            sig = (await self.client.send_raw_transaction(bytes(tx), opts=opts)).value
+            resp = await self.client.confirm_transaction(
+                sig, Confirmed, last_valid_block_height=latest.last_valid_block_height
+            )
             status = resp.value[0] if resp.value else None
             if status is not None and status.err is not None:
                 raise ChainError(f"transaction failed: {status.err}")
             return str(sig)
 
-        return self._run(go())
-
-    def airdrop(self, sol: float) -> str:
-        async def go() -> str:
-            resp = await (await self._connected()).request_airdrop(self.payer.pubkey(), int(sol * 1_000_000_000))
+    async def airdrop(self, sol: float) -> str:
+        async with self._translated():
+            resp = await self.client.request_airdrop(self.payer.pubkey(), int(sol * 1_000_000_000))
             return str(resp.value)
 
-        return self._run(go())
-
-    def balance_sol(self) -> float:
-        async def go() -> float:
-            return (await (await self._connected()).get_balance(self.payer.pubkey())).value / 1_000_000_000
-
-        return self._run(go())
+    async def balance_sol(self) -> float:
+        async with self._translated():
+            return (await self.client.get_balance(self.payer.pubkey())).value / 1_000_000_000
 
 
 def explorer_url(rpc_url: str, kind: str, ident: str) -> str:
@@ -292,19 +313,24 @@ def default_program_id() -> str:
 @dataclass
 class Attestor:
     chain: ChainLike
-    status_source: Callable[[], dict[str, Any] | None]
+    status_source: StatusSource
     records_source: Callable[[], list[dict[str, Any]]]
     out_path: str
+    max_pending: int = 200
     initialized: bool = False
     registered: set[str] = field(default_factory=set)
     last_set: tuple[int, tuple[str, ...]] | None = None
-    pending_jobs: list[tuple[bytes, str, bytes]] = field(default_factory=list)
-    max_pending: int = 200
+    pending_jobs: deque[tuple[bytes, str, bytes]] = field(init=False)
     sent: int = 0
     errors: int = 0
+    dropped_jobs: int = 0
+    alive: bool = False
     last: dict[str, Any] | None = None
     recent: deque = field(default_factory=lambda: deque(maxlen=20))
-    stop: threading.Event = field(default_factory=threading.Event)
+    stop: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def __post_init__(self) -> None:
+        self.pending_jobs = deque(maxlen=self.max_pending)
 
     @property
     def cluster(self) -> Pubkey:
@@ -331,47 +357,59 @@ class Attestor:
             with Path(self.out_path).open("a") as fh:
                 fh.write(json.dumps(row) + "\n")
         except OSError:
-            pass
-        print(f"[attest] {kind} {sig[:16]}... {json.dumps(detail)}", flush=True)
+            log.exception("could not append to %s", self.out_path)
+        log.info("%s %s... %s", kind, sig[:16], json.dumps(detail))
 
-    def ensure_initialized(self, status: dict[str, Any] | None) -> bool:
-        """True once the Cluster account exists; creates it when a status document is at hand."""
+    async def ensure_initialized(self, status: dict[str, Any] | None) -> bool:
+        """True once the Cluster account exists; creates it when a status document is at hand.
+        Reading the account also adopts its node list and worker set, so after any failure
+        the attestor continues from what the chain holds, not from what it remembers."""
         if self.initialized:
             return True
-        data = self.chain.account_data(self.cluster)
+        data = await self.chain.account_data(self.cluster)
         if data:
-            self.registered = {n["host"] for n in decode_cluster(data)["nodes"]}
+            onchain = decode_cluster(data)
+            self.registered = {n["host"] for n in onchain["nodes"]}
+            state = STATE_CODES.get(onchain["state"], 0)
+            self.last_set = (state, tuple(sorted(n["host"] for n in onchain["nodes"] if n["active"])))
             self.initialized = True
             return True
         if status is None:
             return False
         accounts = [*self._authority_accounts(True), AccountMeta(SYSTEM_PROGRAM, is_signer=False, is_writable=False)]
-        sig = self.chain.send(instruction("Initialize", model_hash=model_hash(status)), accounts)
+        sig = await self.chain.send(instruction("Initialize", model_hash=model_hash(status)), accounts)
         self.initialized = True
         self.record("initialize", sig, cluster=str(self.cluster), model_hash=model_hash(status).hex())
         return True
 
-    def sync_worker_set(self, status: dict[str, Any]) -> bool:
+    async def sync_worker_set(self, status: dict[str, Any]) -> bool:
         state, hosts, active = worker_set(status)
         for host in hosts:
             if host not in self.registered:
-                sig = self.chain.send(instruction("RegisterNode", host=host), self._authority_accounts(False))
+                sig = await self.chain.send(instruction("RegisterNode", host=host), self._authority_accounts(False))
                 self.registered.add(host)
                 self.record("register_node", sig, host=host)
         if self.last_set == (state, active):
             return False
         data = instruction("SetWorkerSet", state=state, active=list(active))
-        sig = self.chain.send(data, self._authority_accounts(False))
+        sig = await self.chain.send(data, self._authority_accounts(False))
         self.last_set = (state, active)
         self.record("set_worker_set", sig, state=STATE_NAMES[state], active=list(active), reason=status.get("reason"))
         return True
 
-    def sync_jobs(self) -> int:
+    def queue_jobs(self) -> None:
         for rec in self.records_source():
             job = job_from_record(rec)
-            if job:
-                self.pending_jobs.append(job)
-        self.pending_jobs = self.pending_jobs[-self.max_pending :]
+            if job is None:
+                continue
+            if len(self.pending_jobs) == self.pending_jobs.maxlen:
+                oldest = self.pending_jobs[0]
+                self.dropped_jobs += 1
+                log.warning("pending jobs at %d: dropping oldest job %s", self.max_pending, oldest[0].hex())
+            self.pending_jobs.append(job)
+
+    async def sync_jobs(self) -> int:
+        self.queue_jobs()
         sent = 0
         while self.pending_jobs:
             job_id, served_by, digest = self.pending_jobs[0]
@@ -382,56 +420,92 @@ class Attestor:
             ]
             data = instruction("CommitJob", job_id=job_id, served_by=served_by, result_hash=digest)
             try:
-                sig = self.chain.send(data, accounts)
+                sig = await self.chain.send(data, accounts)
             except ChainError as e:
-                if "already in use" in str(e) or "custom program error" in str(e):
-                    self.pending_jobs.pop(0)  # committed before, or rejected for good: do not retry
-                    print(f"[attest] job {job_id.hex()} dropped: {e}", file=sys.stderr)
+                if any(marker in str(e) for marker in FINAL_REJECTION_MARKERS):
+                    self.pending_jobs.popleft()  # committed before, or rejected for good: do not retry
+                    self.dropped_jobs += 1
+                    log.warning("job %s dropped: %.300s", job_id.hex(), e)
                     continue
                 raise
-            self.pending_jobs.pop(0)
+            self.pending_jobs.popleft()
             sent += 1
             self.record("commit_job", sig, job_id=job_id.hex(), served_by=served_by, result_sha256=digest.hex())
         return sent
 
-    def step(self) -> None:
-        status = self.status_source()
-        if not self.ensure_initialized(status):
-            return
-        if status is not None:
-            self.sync_worker_set(status)
-        self.sync_jobs()
+    async def step(self) -> None:
+        """One sync pass. A chain error forgets the account view so the next pass re-reads it."""
+        try:
+            status = await self.status_source()
+            if not await self.ensure_initialized(status):
+                return
+            if status is not None:
+                await self.sync_worker_set(status)
+            await self.sync_jobs()
+        except ChainError:
+            self.initialized = False
+            raise
 
-    def run(self, interval: float) -> None:
-        while not self.stop.is_set():
-            try:
-                self.step()
-            except (ChainError, httpx2.HTTPError) as e:
-                self.errors += 1
-                print(f"[attest] retrying: {e}", file=sys.stderr, flush=True)
-            self.stop.wait(interval)
+    async def run(self, interval: float) -> None:
+        """Sync forever, `interval` seconds apart, until stop is set or the task is cancelled.
+        No exception ends the loop: expected ones are counted, unexpected ones logged with their trace."""
+        self.alive = True
+        try:
+            while not self.stop.is_set():
+                try:
+                    await self.step()
+                except (ChainError, httpx2.HTTPError) as e:
+                    self.errors += 1
+                    log.warning("retrying: %.300s", e)
+                except Exception:
+                    self.errors += 1
+                    log.exception("attestor step failed; continuing")
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self.stop.wait(), timeout=interval)
+        finally:
+            self.alive = False
 
     def summary(self) -> dict[str, Any]:
         return {
             "cluster": str(self.cluster),
             "explorer": explorer_url(self.chain.rpc_url, "address", str(self.cluster)),
             "initialized": self.initialized,
+            "alive": self.alive,
             "sent": self.sent,
             "errors": self.errors,
             "pending_jobs": len(self.pending_jobs),
+            "dropped_jobs": self.dropped_jobs,
             "last": self.last,
             "recent": list(self.recent),
             "payer": str(self.chain.payer.pubkey()),
         }
 
 
-def start_thread(att: Attestor, interval: float) -> threading.Thread:
-    t = threading.Thread(target=att.run, args=(interval,), name="attest", daemon=True)
-    t.start()
-    return t
-
-
 # ----- CLI ---------------------------------------------------------------------------
+
+
+async def amain(args: argparse.Namespace) -> None:
+    payer = Keypair.from_json(Path(args.keypair).read_text())
+    chain = Chain(args.rpc_url, payer, Pubkey.from_string(args.program_id))
+    async with httpx2.AsyncClient(timeout=3.0) as http:
+        att = Attestor(
+            chain, http_status_source(args.status_url, http), LogTail(args.decision_log, args.from_start).read, args.out
+        )
+        try:
+            if args.show:
+                data = await chain.account_data(att.cluster)
+                doc = {"cluster": str(att.cluster), "explorer": explorer_url(args.rpc_url, "address", str(att.cluster))}
+                print(json.dumps({**doc, **(decode_cluster(data) if data else {"initialized": False})}, indent=2))
+                return
+            log.info(
+                "payer %s balance %.3f SOL, cluster account %s", payer.pubkey(), await chain.balance_sol(), att.cluster
+            )
+            if args.once:
+                await att.step()
+                return
+            await att.run(args.interval)
+        finally:
+            await chain.close()
 
 
 def main() -> None:
@@ -449,26 +523,8 @@ def main() -> None:
     args = ap.parse_args()
     if not args.program_id:
         sys.exit("no program id: pass --program-id, set ATTEST_PROGRAM_ID, or build the program first")
-
-    payer = Keypair.from_json(Path(args.keypair).read_text())
-    chain = Chain(args.rpc_url, payer, Pubkey.from_string(args.program_id))
-    att = Attestor(
-        chain, http_status_source(args.status_url), LogTail(args.decision_log, args.from_start).read, args.out
-    )
-
-    if args.show:
-        data = chain.account_data(att.cluster)
-        doc = {"cluster": str(att.cluster), "explorer": explorer_url(args.rpc_url, "address", str(att.cluster))}
-        print(json.dumps({**doc, **(decode_cluster(data) if data else {"initialized": False})}, indent=2))
-        return
-    print(
-        f"[attest] payer {payer.pubkey()} balance {chain.balance_sol():.3f} SOL, cluster account {att.cluster}",
-        flush=True,
-    )
-    if args.once:
-        att.step()
-        return
-    att.run(args.interval)
+    logs.configure()
+    asyncio.run(amain(args))
 
 
 if __name__ == "__main__":

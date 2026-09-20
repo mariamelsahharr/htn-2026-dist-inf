@@ -6,36 +6,42 @@ relays the answer, and keeps the numbers the dashboard reads.
 import asyncio
 import contextlib
 import hashlib
-import json
+import logging
 import time
 import uuid
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncIterator
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import attest
 import httpx2
+import logs
+import orjson
 import telemetry
+from cachetools import TTLCache
 from config import Settings
 from fastapi.responses import JSONResponse, StreamingResponse
 from metering import RECENT_FIELDS, TokenMeter, percentile
-from responses import ResponseBuilder, error_body, responses_to_chat
+from responses import ResponseBuilder, responses_to_chat
 from routing import CACHE, CLUSTER, SERVING_STATES, Decision, cluster_state, continuation_body, fallback_chain, route
 from state import DecisionLog, State
-from streaming import ChatSink, ResponsesSink, Sink
-from upstreams import Upstreams, Won
+from streaming import Api, ChatApi, ResponsesApi
+from upstreams import Stream, Upstreams, Won
 from wire import (
     UPSTREAM_ERRORS,
+    answer_cache_key,
     answer_text,
-    cache_key,
     chat_completion,
+    demo_cache_key,
     err_text,
-    handover_line,
+    handover_chunk,
     ms_since,
     sse,
     sse_chunk,
 )
+
+log = logging.getLogger(__name__)
 
 
 class Router:
@@ -43,6 +49,7 @@ class Router:
         self.s = settings
         self.cfg = settings.config
         self.st = State()
+        self.st.answers = TTLCache(maxsize=1024, ttl=settings.answer_cache_ttl or 1.0)  # unused when ttl is 0
         self.up = Upstreams(settings, self.cfg, client, self.st.fallbacks)
         self.client = client
         self.decisions = DecisionLog(settings.decision_log, settings.decision_log_max_bytes)
@@ -50,9 +57,15 @@ class Router:
         self.attestor = self.build_attestor()
         if Path(settings.cache_file).exists():
             try:
-                self.st.cache = json.loads(Path(settings.cache_file).read_text())
+                self.st.cache = orjson.loads(Path(settings.cache_file).read_bytes())
             except (OSError, ValueError):
                 self.st.cache = {}
+
+    async def aclose(self) -> None:
+        """Release what the router owns: the attestor's RPC client and the decision-log writer thread."""
+        if self.attestor:
+            await self.attestor.chain.close()
+        self.decisions.close()
 
     # ----- bookkeeping ----------------------------------------------------
 
@@ -67,9 +80,9 @@ class Router:
         chain = attest.Chain(self.s.solana_rpc_url, payer, attest.Pubkey.from_string(program_id))
         return attest.Attestor(chain, self.fresh_status, self.records.read, self.s.attestations_file)
 
-    def fresh_status(self) -> dict[str, Any] | None:
+    async def fresh_status(self) -> dict[str, Any] | None:
         """The last supervisor document, or None once it is older than a few polls."""
-        fresh = time.time() - self.st.status_last_ok < 3 * self.s.status_interval
+        fresh = time.monotonic() - self.st.status_last_ok < 3 * self.s.status_interval
         return self.st.status_detail if fresh and self.st.status_detail else None
 
     def log(
@@ -96,6 +109,7 @@ class Router:
             "ts": time.time(),
             "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
         }
+        logs.bind(served_by=served_by, reason=record["reason"])
         if served_by not in ("none", CACHE):
             self.st.recent.append({k: record[k] for k in RECENT_FIELDS if k in record})
         if served_by == CLUSTER and extra.get("prefill_tps"):
@@ -104,6 +118,7 @@ class Router:
         telemetry.log_decision(record)
         if self.attestor:
             self.records.push(record)
+        log.info("served_by=%s latency_ms=%s fallback=%s error=%s", served_by, record["latency_ms"], fallback, error)
 
     @staticmethod
     def headers_for(decision: Decision, served_by: str, fallback: bool, reason: str | None = None) -> dict[str, str]:
@@ -128,7 +143,7 @@ class Router:
             data = r.json()
             self.st.status_detail = data if isinstance(data, dict) else {}
             self.st.cluster_status = cluster_state(self.st.status_detail, self.s.min_local_nodes)
-            self.st.status_last_ok = time.time()
+            self.st.status_last_ok = time.monotonic()
             self.adopt_local_model(self.st.status_detail)
         except Exception:
             try:
@@ -138,7 +153,7 @@ class Router:
 
     def adopt_local_model(self, status: dict[str, Any]) -> None:
         """The cluster's model name comes from what the supervisor actually loaded, not a setting:
-        /home/pi/.../dllama_model_qwen3_0.6b_q40.m is advertised as qwen3_0.6b_q40."""
+        /home/pi/.../dllama_model_qwen3_30b_a3b_q40.m is advertised as qwen3_30b_a3b_q40."""
         path = (status.get("root") or {}).get("model")
         if isinstance(path, str) and path:
             name = Path(path).stem.removeprefix("dllama_model_")
@@ -161,7 +176,7 @@ class Router:
     def ready(self) -> tuple[bool, dict[str, Any]]:
         """Can anything answer right now: the cluster in a serving state, or a cloud tier
         whose breaker is closed."""
-        now = time.time()
+        now = time.monotonic()
         cloud = [n for n in self.cfg.cloud_tiers() if not self.up.breaker.is_open(n, now)]
         cluster = self.st.cluster_status in SERVING_STATES
         return bool(cloud or cluster), {"cluster": cluster, "cloud_ready": cloud, "tiers": self.up.tier_health}
@@ -171,15 +186,12 @@ class Router:
     def cache_get(self, body: dict[str, Any], decision: Decision) -> str | None:
         if self.s.answer_cache_ttl <= 0 or decision.forced or body.get("tools"):
             return None
-        hit = self.st.answers.get(f"{decision.model_sent}:{cache_key(body)}")
-        return hit[0] if hit and hit[1] > time.time() else None
+        return self.st.answers.get(answer_cache_key(body, decision.model_sent))
 
     def cache_put(self, body: dict[str, Any], decision: Decision, text: str) -> None:
         if self.s.answer_cache_ttl <= 0 or decision.forced or body.get("tools") or not text:
             return
-        now = time.time()
-        self.st.answers = {k: v for k, v in self.st.answers.items() if v[1] > now}
-        self.st.answers[f"{decision.model_sent}:{cache_key(body)}"] = (text, now + self.s.answer_cache_ttl)
+        self.st.answers[answer_cache_key(body, decision.model_sent)] = text
 
     # ----- request paths --------------------------------------------------
 
@@ -194,59 +206,50 @@ class Router:
     def decide(self, body: dict[str, Any], headers: dict[str, str]) -> Decision:
         decision = replace(route(body, headers, self.st.cluster_status, self.cfg), request_id=uuid.uuid4().hex)
         self.st.counts[(decision.upstream, decision.reason)] += 1
+        logs.bind(request_id=decision.request_id, reason=decision.reason, served_by="-")
         telemetry.tag_request(decision, self.st.cluster_status)
         return decision
 
     async def chat(self, body: dict[str, Any], headers: dict[str, str]):
-        decision, t0 = self.decide(body, headers), time.time()
-        stream = bool(body.get("stream"))
-        cached = self.cache_get(body, decision)
-        if cached is not None:
-            return self.serve_cached(cached, decision, stream=stream, reason="answer_cache", t0=t0)
-        plan = self.fallback_plan(body, decision)
-        if not stream:
-            won, last_err = await self.answer_blocking(plan, decision, t0)
-            if won is None:
-                return self.cached_or_error(body, decision, stream=False, last_err=last_err, t0=t0)
-            return JSONResponse(won.result, headers=self.headers_for(decision, won.upstream, won.fell_back))
-        with telemetry.agent_span(decision, self.st.cluster_status):
-            won, last_err = await self.up.first_success(plan, self.up.acquire)
-        if won is None:
-            return self.cached_or_error(body, decision, stream=True, last_err=last_err, t0=t0)
-        return self.stream_response(body, decision, won, ChatSink(), t0=t0, last_err=last_err, continuation=True)
+        return await self.serve(body, headers, ChatApi())
 
     async def responses(self, body: dict[str, Any], headers: dict[str, str]):
         chat, custom = responses_to_chat(body)
-        decision, t0 = self.decide(chat, headers), time.time()
-        builder = ResponseBuilder(decision.model_sent, custom)
-        plan = self.fallback_plan(chat, decision)
-        if not body.get("stream"):
-            won, last_err = await self.answer_blocking(plan, decision, t0, api="responses")
+        decision = self.decide(chat, headers)
+        return await self.serve(chat, headers, ResponsesApi(ResponseBuilder(decision.model_sent, custom)), decision)
+
+    async def serve(self, body: dict[str, Any], headers: dict[str, str], api: Api, decision: Decision | None = None):
+        """The one path every request takes: decide, maybe answer from memory, walk the fallback
+        plan blocking or streaming, and shape the outcome the way this API expects."""
+        decision, t0 = decision or self.decide(body, headers), time.monotonic()
+        stream = bool(body.get("stream"))
+        if api.cached:
+            cached = self.cache_get(body, decision)
+            if cached is not None:
+                return self.serve_cached(cached, decision, stream=stream, reason="answer_cache", t0=t0)
+        plan = self.fallback_plan(body, decision)
+        if not stream:
+            won, last_err = await self.answer_blocking(plan, decision, t0, api)
             if won is None:
-                return self.failed_response(decision, last_err, stream=False, t0=t0)
-            for _ in builder.feed(won.result):
-                pass
-            return JSONResponse(
-                builder.response_object(), headers=self.headers_for(decision, won.upstream, won.fell_back)
-            )
+                return self.failed(body, decision, api, stream=False, last_err=last_err, t0=t0)
+            headers = self.headers_for(decision, won.upstream, won.fell_back)
+            return JSONResponse(api.blocking(won.result), headers=headers)
         with telemetry.agent_span(decision, self.st.cluster_status):
-            won, last_err = await self.up.first_success(plan, self.up.acquire)
-        if won is None:
-            return self.failed_response(decision, last_err, stream=True, t0=t0)
-        sink = ResponsesSink(builder)
-        return self.stream_response(chat, decision, won, sink, t0=t0, last_err=last_err, api="responses")
+            opened, last_err = await self.up.first_success(plan, self.up.open_stream)
+        if opened is None:
+            return self.failed(body, decision, api, stream=True, last_err=last_err, t0=t0)
+        return self.stream_response(body, decision, opened, api, t0=t0, last_err=last_err)
 
     async def answer_blocking(
-        self, plan: list[tuple[str, dict[str, Any]]], decision: Decision, t0: float, api: str | None = None
-    ) -> tuple[Won | None, str]:
+        self, plan: list[tuple[str, dict[str, Any]]], decision: Decision, t0: float, api: Api
+    ) -> tuple[Won[dict[str, Any]] | None, str]:
         """One blocking answer down the plan, metered and logged; the caller shapes the response."""
         with telemetry.agent_span(decision, self.st.cluster_status):
             won, last_err = await self.up.first_success(plan, self.up.post_blocking)
-        extra = {"api": api} if api else {}
         if won is None:
-            self.log(decision, "none", stream=False, t0=t0, fallback=True, error=last_err, **extra)
+            self.log(decision, "none", stream=False, t0=t0, fallback=True, error=last_err, api=api.name)
             return None, last_err
-        data: dict[str, Any] = won.result
+        data = won.result
         if won.fell_back:
             self.st.fallbacks[f"blocking:{last_err[:40]}"] += 1
         self.st.served[won.upstream] += 1
@@ -260,32 +263,25 @@ class Router:
             fallback=won.fell_back,
             error=last_err,
             result_sha256=sha256(answer_text(data)),
-            **extra,
-            **meter.result(t0),
+            api=api.name,
+            **meter.result(won.started),
         )
         message = ((data.get("choices") or [{}])[0]).get("message") or {}
-        self.cache_put(plan[0][1], decision, "" if message.get("tool_calls") else answer_text(data))
+        if api.cached:
+            self.cache_put(plan[0][1], decision, "" if message.get("tool_calls") else answer_text(data))
         return won, last_err
 
     def stream_response(
-        self,
-        orig: dict[str, Any],
-        decision: Decision,
-        won: Won,
-        sink: Sink,
-        *,
-        t0: float,
-        last_err: str,
-        api: str | None = None,
-        continuation: bool = False,
+        self, orig: dict[str, Any], decision: Decision, won: Won[Stream], api: Api, *, t0: float, last_err: str
     ) -> StreamingResponse:
         if won.fell_back:
             self.st.fallbacks[f"pre_commit:{last_err[:40]}"] += 1
         self.st.served[won.upstream] += 1
-        telemetry.set_ttft(ms_since(t0))
-        body = self.run_stream(
-            orig, decision, won, sink, ttft=ms_since(t0), t0=t0, last_err=last_err, api=api, continuation=continuation
-        )
+        _gen, buffered = won.result
+        first = next((c.at for c in buffered if c.is_content), time.monotonic())
+        ttft = int((first - won.started) * 1000)
+        telemetry.set_ttft(ttft)
+        body = self.run_stream(orig, decision, won, api, ttft=ttft, t0=t0, last_err=last_err)
         return StreamingResponse(
             body,
             media_type="text/event-stream",
@@ -296,22 +292,19 @@ class Router:
         self,
         orig: dict[str, Any],
         decision: Decision,
-        won: Won,
-        sink: Sink,
+        won: Won[Stream],
+        api: Api,
         *,
         ttft: int,
         t0: float,
         last_err: str,
-        api: str | None,
-        continuation: bool,
     ) -> AsyncIterator[bytes]:
         """Pre-commit is done: bytes go on the wire from here. A mid-stream death is recovered,
         when allowed, by asking another tier to continue from the partial text."""
-        gen: AsyncGenerator[tuple[bool, str], None]
         gen, buffered = won.result
         served_by = won.upstream
-        extra: dict[str, Any] = {"api": api} if api else {}
-        meter = TokenMeter(self.cfg.tier(served_by), decision.prompt_tokens, t_first=t0 + ttft / 1000.0)
+        sink = api.sink()
+        meter = TokenMeter(self.cfg.tier(served_by), decision.prompt_tokens)
         try:
             for chunk in sink.start():
                 yield chunk
@@ -319,7 +312,7 @@ class Router:
                 meter.see(line)
                 for chunk in sink.line(line):
                     yield chunk
-            async for _is_content, line in gen:
+            async for line in gen:
                 meter.see(line)
                 for chunk in sink.line(line):
                     yield chunk
@@ -333,27 +326,43 @@ class Router:
                 ttft_ms=ttft,
                 gen_chars=len(sink.text),
                 result_sha256=sha256(sink.text),
-                **extra,
-                **meter.result(t0),
+                api=api.name,
+                **meter.result(won.started),
             )
-            self.cache_put(orig, decision, sink.text)
+            if api.cached:
+                self.cache_put(orig, decision, sink.text)
             for chunk in sink.finish():
                 yield chunk
+        except asyncio.CancelledError:
+            # the client hung up (Starlette cancels the response task): say so in the log, then let it through
+            self.log(
+                decision,
+                served_by,
+                stream=True,
+                t0=t0,
+                fallback=won.fell_back,
+                error="client_disconnected",
+                ttft_ms=ttft,
+                gen_chars=len(sink.text),
+                api=api.name,
+                **meter.result(won.started),
+            )
+            raise
         except UPSTREAM_ERRORS as e:
             err, recovered = err_text(e), False
             # no continuation onto a forced upstream, or onto an answer that already finished
             cont_tier = (
                 next((n for n in self.cfg.cloud_tiers() if n != served_by), None)
-                if continuation and not (decision.forced or sink.done)
+                if api.continuation and not (decision.forced or sink.done)
                 else None
             )
             if cont_tier:
                 self.st.fallbacks[f"mid_stream:{err[:40]}"] += 1
                 try:
                     cont = continuation_body(orig, sink.text, self.cfg.model_for(cont_tier))
-                    for chunk in sink.line(handover_line(served_by, cont_tier)):
+                    for chunk in sink.line(handover_chunk(served_by, cont_tier)):
                         yield chunk
-                    async for _c, line in self.up.sse_stream(cont_tier, cont):
+                    async for line in self.up.sse_stream(cont_tier, cont):
                         for chunk in sink.line(line):
                             yield chunk
                     recovered = True
@@ -369,22 +378,16 @@ class Router:
                 gen_chars=len(sink.text),
                 mid_stream_error=err,
                 recovered=recovered,
-                **extra,
-                **meter.result(t0),
+                api=api.name,
+                **meter.result(won.started),
             )
             for chunk in sink.finish() if recovered else sink.fail(err):
                 yield chunk
         finally:
             with contextlib.suppress(Exception):
-                await gen.aclose()  # client hung up: release the upstream connection now
+                await gen.aclose()  # returns the upstream connection and the cluster slot now, not at GC
 
-    def failed_response(self, decision: Decision, last_err: str, *, stream: bool, t0: float) -> JSONResponse:
-        self.log(decision, "none", stream=stream, t0=t0, fallback=True, error=last_err, api="responses")
-        return JSONResponse(
-            error_body(f"all upstreams failed: {last_err}"), status_code=502, headers={"X-Served-By": "none"}
-        )
-
-    # ----- cached answers ---------------------------------------------------
+    # ----- cached answers and failures --------------------------------------
 
     def serve_cached(self, text: str, decision: Decision, *, stream: bool, reason: str, t0: float):
         self.st.served[CACHE] += 1
@@ -402,15 +405,14 @@ class Router:
 
         return StreamingResponse(typed(), media_type="text/event-stream", headers=headers)
 
-    def cached_or_error(self, orig: dict[str, Any], decision: Decision, *, stream: bool, last_err: str, t0: float):
-        cached = self.st.cache.get(cache_key(orig)) if self.s.demo_fallback else None
+    def failed(self, orig: dict[str, Any], decision: Decision, api: Api, *, stream: bool, last_err: str, t0: float):
+        """Every upstream failed: the demo cache if this API may use it, else a 502 in its error shape."""
+        cached = self.st.cache.get(demo_cache_key(orig)) if api.cached and self.s.demo_fallback else None
         if cached:
             return self.serve_cached(cached, decision, stream=stream, reason="demo_cache", t0=t0)
-        self.log(decision, "none", stream=stream, t0=t0, fallback=True, error=last_err)
+        self.log(decision, "none", stream=stream, t0=t0, fallback=True, error=last_err, api=api.name)
         return JSONResponse(
-            {"error": {"message": f"all upstreams failed: {last_err}"}},
-            status_code=502,
-            headers={"X-Served-By": "none"},
+            api.error(f"all upstreams failed: {last_err}"), status_code=502, headers={"X-Served-By": "none"}
         )
 
     # ----- numbers ---------------------------------------------------------
@@ -429,13 +431,15 @@ class Router:
             "by_reason": {f"{u}:{r}": n for (u, r), n in self.st.counts.items()},
             "fallbacks": dict(self.st.fallbacks),
             "cluster_status": self.st.cluster_status,
-            "breakers_open_s": self.up.breaker.snapshot(time.time()),
+            "breakers_open_s": self.up.breaker.snapshot(time.monotonic()),
             "rates": self.rates(),
             "inflight": dict(self.up.inflight),
             "cluster_waiting": self.up.cluster_waiting,
             "local_prefill_tps_estimate": round(self.up.prefill.value, 1),
             "recent": list(self.st.recent),
-            "status_age_s": round(time.time() - self.st.status_last_ok, 1) if self.st.status_last_ok else None,
+            "status_age_s": round(time.monotonic() - self.st.status_last_ok, 1) if self.st.status_last_ok else None,
+            "decision_log_queue_depth": self.decisions.depth,
+            "attestor_alive": self.attestor.alive if self.attestor else None,
             "cluster": self.st.status_detail,  # the supervisor document as last seen, for the dashboard
             "solana": self.attestor.summary() if self.attestor else None,
         }

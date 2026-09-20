@@ -54,6 +54,7 @@ def init(dsn: str, environment: str = "demo") -> bool:
         "environment": environment,
         "traces_sample_rate": 1.0,  # hackathon traffic is tiny; keep every trace
         "send_default_pii": True,  # demo prompts/outputs are fine to show in the AI dashboard
+        "include_local_variables": False,  # frames hold Tier objects and headers: no API keys in an event
         "enable_logs": True,  # Sentry Logs product
     }
     try:

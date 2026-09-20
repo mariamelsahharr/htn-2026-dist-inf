@@ -1,13 +1,13 @@
 """
 metering.py - what one answer cost and how fast it came, plus the running prefill
-estimate the first-token budget is scaled by.
+estimate the first-token budget is scaled by. All stamps are time.monotonic().
 """
 
 import time
 from typing import Any
 
 from routing import Tier
-from wire import answer_text, chunk_of, content_of
+from wire import Chunk, answer_text
 
 RECENT_FIELDS = (
     "request_id",
@@ -62,20 +62,14 @@ class TokenMeter:
         self.chunks = self.chars = 0
         self.usage: dict[str, Any] | None = None
 
-    def see(self, line: str) -> None:
-        obj = chunk_of(line)
-        if obj is None:
-            return
-        usage = obj.get("usage")
-        if isinstance(usage, dict) and usage.get("completion_tokens") is not None:
-            self.usage = usage
-        piece = content_of(line)
-        if piece is not None:
-            now = time.time()
-            self.t_first = self.t_first or now
-            self.t_last = now
+    def see(self, chunk: Chunk) -> None:
+        if chunk.usage is not None:
+            self.usage = chunk.usage
+        if chunk.content is not None:
+            self.t_first = self.t_first or chunk.at
+            self.t_last = chunk.at
             self.chunks += 1
-            self.chars += len(piece)
+            self.chars += len(chunk.content)
 
     def see_completion(self, data: dict[str, Any]) -> None:
         usage = data.get("usage")
@@ -83,9 +77,10 @@ class TokenMeter:
             self.usage = usage
         self.chars += len(answer_text(data))
 
-    def result(self, t0: float) -> dict[str, Any]:
-        """Rates count what the client saw. A reasoning model's usage includes thinking tokens
-        that never stream, so those are removed (reported, or inferred from the text length)."""
+    def result(self, started: float) -> dict[str, Any]:
+        """Rates count what the client saw, from the moment the attempt started (after any queue wait).
+        A reasoning model's usage includes thinking tokens that never stream, so those are removed
+        (reported, or inferred from the text length)."""
         out: dict[str, Any] = {}
         if self.usage:
             billed = int(self.usage["completion_tokens"])
@@ -104,13 +99,13 @@ class TokenMeter:
         else:
             gen, source, prompt = round(self.chars / 4), "chars", self.prompt_estimate
         out.update({"gen_tokens": gen, "tokens_source": source, "prompt_tokens_actual": prompt})
-        if self.t_first and self.t_first >= t0:
-            out["prefill_tps"] = round(prompt / max(self.t_first - t0, 0.001), 1)  # a sub-ms first token still rates
+        if self.t_first and self.t_first >= started:  # a sub-ms first token still rates
+            out["prefill_tps"] = round(prompt / max(self.t_first - started, 0.001), 1)
         # a decode rate needs an interval between tokens: at least two chunks, spanning ≥ 50 ms;
         # a whole answer in one burst (some cloud tiers after a long wait) only gets the overall tps
         if self.t_first and self.t_last and self.chunks >= 2 and self.t_last - self.t_first >= 0.05 and gen > 1:
             out["decode_tps"] = round((gen - 1) / (self.t_last - self.t_first), 1)
-        elapsed = time.time() - t0
+        elapsed = time.monotonic() - started
         if elapsed > 0 and gen:
             out["tps"] = round(gen / elapsed, 1)
         return out

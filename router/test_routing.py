@@ -41,7 +41,11 @@ def tiered(**kw):
         cloud_available=True,
         local_model="llama-3.2-3b-instruct",
         cloud_model="big-70b",
-        tiers={"openai": Tier("openai", "gpt-x", handles_tools=True), "gemini": Tier("gemini", "gemini-x")},
+        tiers={
+            BASETEN: Tier(BASETEN, "big-70b"),
+            "openai": Tier("openai", "gpt-x", handles_tools=True),
+            "gemini": Tier("gemini", "gemini-x"),
+        },
         tool_tier="openai",
         **kw,
     )
@@ -323,6 +327,22 @@ def test_models_payload_lists_local_and_heavy():
 def test_models_payload_omits_cloud_when_unconfigured():
     ids = [m["id"] for m in models_payload(NO_CLOUD)["data"]]
     assert NO_CLOUD.cloud_model not in ids
+    assert not any(i.endswith("-heavy") for i in ids), "no heavy alias when nothing heavy can take it"
+    assert NO_CLOUD.heavy_tier is None and NO_CLOUD.tiers == {}
+
+
+def test_heavy_tier_defaults_to_the_first_configured_cloud_tier():
+    """Only OpenAI configured: escalations go there, and no phantom Baseten tier is synthesised."""
+    cfg = RouterConfig(cloud_available=True, tiers={"openai": Tier("openai", "gpt-x", "https://x/v1", "k")})
+    assert cfg.heavy_tier == "openai" and list(cfg.tiers) == ["openai"]
+    d = route(body("word " * 3000), {}, "healthy", cfg)
+    assert d.upstream == "openai" and d.reason == "over_size_threshold"
+    owners = {m["id"]: m["owned_by"] for m in models_payload(cfg)["data"]}
+    assert owners[cfg.local_model + "-heavy"] == "openai"
+
+
+def test_tier_repr_hides_the_api_key():
+    assert "sekrit" not in repr(Tier("openai", "gpt-x", "https://x/v1", "sekrit"))
 
 
 # --------------------------------------------------------- breaker + tool miss
@@ -362,7 +382,10 @@ def test_tools_model_is_used_only_when_the_request_carries_tools():
     cfg = RouterConfig(
         cloud_available=True,
         cloud_model="big-70b",
-        tiers={"snowflake": Tier("snowflake", "llama3.1-8b", "https://x/v1", "k", tools_model="claude-haiku-4-5")},
+        tiers={
+            BASETEN: Tier(BASETEN, "big-70b"),
+            "snowflake": Tier("snowflake", "llama3.1-8b", "https://x/v1", "k", tools_model="claude-haiku-4-5"),
+        },
     )
     plain = route(body("hi"), {"X-Force-Upstream": "snowflake"}, "healthy", cfg)
     with_tools = route({**body("hi"), "tools": TOOLS}, {"X-Force-Upstream": "snowflake"}, "healthy", cfg)

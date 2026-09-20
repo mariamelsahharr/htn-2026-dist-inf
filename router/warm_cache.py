@@ -15,29 +15,35 @@ text of the last user message, so a typo on stage misses the cache.
 """
 
 import argparse
-import hashlib
 import json
+import logging
 import sys
 from pathlib import Path
 
 import httpx2 as httpx
+import logs
+from wire import demo_cache_key
+
+log = logging.getLogger(__name__)
 
 
 def cache_key(prompt: str) -> str:
-    return hashlib.sha256(" ".join(prompt.lower().split()).encode()).hexdigest()[:16]
+    """The key the router looks demo answers up under: the normalised last user message."""
+    return demo_cache_key({"messages": [{"role": "user", "content": prompt}]})
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prompts", required=True)
     ap.add_argument("--url", default="http://pi-node-5.local:8000/v1/chat/completions")
-    ap.add_argument("--model", default="llama-3.2-3b-instruct")
+    ap.add_argument("--model", default="qwen3-30b-a3b")
     ap.add_argument("--out", default="demo_cache.json")
     ap.add_argument("--max-tokens", type=int, default=400)
     ap.add_argument(
         "--force-upstream", default="", help="cluster|baseten - pin which upstream generates the cached answer"
     )
     args = ap.parse_args()
+    logs.configure()
 
     lines = [line.strip() for line in Path(args.prompts).read_text().splitlines()]
     prompts = [line for line in lines if line and not line.startswith("#")]
@@ -57,7 +63,7 @@ def main():
 
     with httpx.Client(timeout=180) as c:
         for i, p in enumerate(prompts, 1):
-            print(f"[{i}/{len(prompts)}] {p[:70]}")
+            log.info("[%d/%d] %s", i, len(prompts), p[:70])
             try:
                 r = c.post(
                     args.url,
@@ -72,13 +78,12 @@ def main():
                 r.raise_for_status()
                 text = r.json()["choices"][0]["message"]["content"]
                 cache[cache_key(p)] = text
-                print(f"        -> {len(text)} chars via {r.headers.get('X-Served-By')}")
-            except Exception as e:
-                print(f"        !! {type(e).__name__}: {e}")
+                log.info("-> %d chars via %s", len(text), r.headers.get("X-Served-By"))
+            except (httpx.HTTPError, ValueError, KeyError, IndexError) as e:
+                log.warning("%s: %s", type(e).__name__, e)
 
     Path(args.out).write_text(json.dumps(cache, indent=2))
-    print(f"\nwrote {len(cache)} entries to {args.out}")
-    print("restart the router to load it.")
+    log.info("wrote %d entries to %s; restart the router to load it", len(cache), args.out)
 
 
 if __name__ == "__main__":

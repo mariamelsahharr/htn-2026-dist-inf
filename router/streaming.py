@@ -1,13 +1,15 @@
 """
-streaming.py - how one upstream stream turns into bytes for a client. The router runs
-the stream once, the same way for every API; a sink only says what each line becomes.
+streaming.py - how one upstream answer turns into bytes for a client. The router runs
+the request once, the same way for every API; an Api says what each chunk becomes and
+how a blocking answer or an error is shaped.
 """
 
 from collections.abc import Iterable
-from typing import Protocol
+from dataclasses import dataclass, field
+from typing import Any, Protocol
 
-from responses import ResponseBuilder
-from wire import UpstreamError, chunk_of, content_of, error_of, finished, sse
+from responses import ResponseBuilder, error_body
+from wire import Chunk, UpstreamError, sse
 
 
 class Sink(Protocol):
@@ -21,7 +23,7 @@ class Sink(Protocol):
 
     def start(self) -> Iterable[bytes]: ...
 
-    def line(self, line: str) -> Iterable[bytes]: ...  # raises UpstreamError on a mid-stream error
+    def line(self, chunk: Chunk) -> Iterable[bytes]: ...  # raises UpstreamError on a mid-stream error
 
     def finish(self) -> Iterable[bytes]: ...
 
@@ -42,15 +44,13 @@ class ChatSink:
     def start(self) -> Iterable[bytes]:
         return ()
 
-    def line(self, line: str) -> Iterable[bytes]:
-        err = error_of(line)
-        if err:
-            raise UpstreamError(err)
-        piece = content_of(line)
-        if piece:
-            self.parts.append(piece)
-        self.done = self.done or finished(line)
-        return (sse(line),)
+    def line(self, chunk: Chunk) -> Iterable[bytes]:
+        if chunk.error:
+            raise UpstreamError(chunk.error)
+        if chunk.content:
+            self.parts.append(chunk.content)
+        self.done = self.done or chunk.finished
+        return (sse(chunk.raw),)
 
     def finish(self) -> Iterable[bytes]:
         return (sse("data: [DONE]"),)
@@ -73,16 +73,64 @@ class ResponsesSink:
     def start(self) -> Iterable[bytes]:
         return [ev.encode() for ev in self.builder.start()]
 
-    def line(self, line: str) -> Iterable[bytes]:
-        err = error_of(line)
-        if err:
-            raise UpstreamError(err)
-        self.done = self.done or finished(line)
-        chunk = chunk_of(line)
-        return [ev.encode() for ev in self.builder.feed(chunk)] if chunk is not None else ()
+    def line(self, chunk: Chunk) -> Iterable[bytes]:
+        if chunk.error:
+            raise UpstreamError(chunk.error)
+        self.done = self.done or chunk.finished
+        return [ev.encode() for ev in self.builder.feed(chunk.obj)] if chunk.obj is not None else ()
 
     def finish(self) -> Iterable[bytes]:
         return [ev.encode() for ev in self.builder.finish()]
 
     def fail(self, error: str) -> Iterable[bytes]:
         return [ev.encode() for ev in self.builder.finish(error=error)]
+
+
+class Api(Protocol):
+    """The face one request wears: which sink streams it, how a blocking answer and an error look,
+    and whether the answer caches and a dead stream may be continued by another tier."""
+
+    name: str
+    cached: bool
+    continuation: bool
+
+    def sink(self) -> Sink: ...
+
+    def blocking(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
+    def error(self, message: str) -> dict[str, Any]: ...
+
+
+@dataclass
+class ChatApi:
+    name: str = "chat"
+    cached: bool = True
+    continuation: bool = True
+
+    def sink(self) -> Sink:
+        return ChatSink()
+
+    def blocking(self, data: dict[str, Any]) -> dict[str, Any]:
+        return data
+
+    def error(self, message: str) -> dict[str, Any]:
+        return {"error": {"message": message}}
+
+
+@dataclass
+class ResponsesApi:
+    builder: ResponseBuilder
+    name: str = "responses"
+    cached: bool = field(default=False, init=False)
+    continuation: bool = field(default=False, init=False)
+
+    def sink(self) -> Sink:
+        return ResponsesSink(self.builder)
+
+    def blocking(self, data: dict[str, Any]) -> dict[str, Any]:
+        for _ in self.builder.feed(data):
+            pass
+        return self.builder.response_object()
+
+    def error(self, message: str) -> dict[str, Any]:
+        return error_body(message)

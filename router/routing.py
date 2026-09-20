@@ -44,7 +44,7 @@ class Tier:
     name: str
     model: str
     base_url: str = ""  # ends in /v1 for every tier, the cluster included
-    api_key: str = ""
+    api_key: str = field(default="", repr=False)  # never in a repr, a log line or a Sentry event
     handles_tools: bool = False
     is_local: bool = False
     reasoning_effort: str | None = None  # OpenAI/Gemini knob; some models need "none" to accept tools
@@ -79,26 +79,28 @@ class RouterConfig:
 
     size_threshold: int = 2048  # prompt_tokens + max_tokens above this -> cloud
     cloud_available: bool = True  # False when no Baseten URL/key is configured
-    local_model: str = "llama-3.2-3b-instruct"
+    local_model: str = "qwen3-30b-a3b"
     cloud_model: str = "meta-llama/Llama-3.3-70B-Instruct"
     heavy_markers: tuple[str, ...] = HEAVY_MARKERS
     default_max_tokens: int = 512  # assumed when the client doesn't say
     tiers: dict[str, Tier] = field(default_factory=dict)  # baseten is synthesised if absent
     local_base_url: str = ""
     cloud_order: tuple[str, ...] = DEFAULT_CLOUD_ORDER
-    heavy_tier: str = BASETEN  # size/health/heavy-tag escalations go here
+    heavy_tier: str | None = None  # size/health/heavy-tag escalations go here; default: the first cloud tier
     tool_tier: str | None = None  # requests with tool definitions go here
     code_lines_threshold: int = 120  # fenced code lines in the conversation
     max_local_turns: int = 12  # messages
     catalogs: dict[str, tuple[str, ...]] = field(default_factory=dict)  # tier -> every model it offers
 
     def __post_init__(self) -> None:
-        if self.cloud_available and BASETEN not in self.tiers:
+        if self.cloud_available and not self.tiers:
             self.tiers[BASETEN] = Tier(BASETEN, self.cloud_model)
         if not self.cloud_available:
-            self.tiers.pop(BASETEN, None)
+            self.tiers.clear()
         if self.tool_tier and self.tool_tier not in self.tiers:
             self.tool_tier = None
+        if self.heavy_tier not in self.tiers:
+            self.heavy_tier = next(iter(self.cloud_tiers()), None)
 
     def cloud_tiers(self) -> list[str]:
         """Configured cloud tier names in fallback order."""
@@ -271,7 +273,7 @@ def route(body: dict[str, Any], headers: dict[str, str], cluster_status: str, cf
     model_req = body.get("model") or cfg.local_model
     prompt_tokens = estimate_tokens(messages)
     max_tokens = int(body.get("max_tokens") or cfg.default_max_tokens)
-    heavy = cfg.heavy_tier if cfg.heavy_tier in cfg.tiers else None
+    heavy = cfg.heavy_tier
 
     def finish(upstream: str, reason: str, forced: bool = False) -> Decision:
         if upstream != CLUSTER and upstream not in cfg.tiers:
@@ -298,6 +300,10 @@ def route(body: dict[str, Any], headers: dict[str, str], cluster_status: str, cf
     if pinned:
         return finish(pinned, "model_pinned", forced=True)
 
+    def escalate(reason: str) -> Decision:
+        """To the heavy tier; without any cloud, the cluster takes it and the reason says so."""
+        return finish(heavy, reason) if heavy else finish(CLUSTER, reason + "_no_cloud")
+
     # 1. tool calls: the local model is not tool-tuned
     if body.get("tools") and cfg.tool_tier:
         return finish(cfg.tool_tier, "tools_attached")
@@ -306,22 +312,22 @@ def route(body: dict[str, Any], headers: dict[str, str], cluster_status: str, cf
     #    set is the whole point of degrading instead of dying
     status = (cluster_status or "unknown").lower()
     if status not in SERVING_STATES:
-        return finish(heavy or BASETEN, f"cluster_{status}")
+        return escalate(f"cluster_{status}")
 
     # 3. size budget
     if prompt_tokens + max_tokens > cfg.size_threshold:
-        return finish(heavy or BASETEN, "over_size_threshold")
+        return escalate("over_size_threshold")
 
     # 4. task complexity
     complexity = classify_complexity(messages, cfg)
     if complexity:
-        return finish(heavy or BASETEN, complexity)
+        return escalate(complexity)
 
     # 5. explicit escalation
     if is_heavy_model(model_req, cfg.heavy_markers):
-        return finish(heavy or BASETEN, "heavy_model_tag")
+        return escalate("heavy_model_tag")
     if headers.get("x-escalate", "").strip().lower() in ("1", "true", "yes"):
-        return finish(heavy or BASETEN, "escalate_header")
+        return escalate("escalate_header")
 
     # 6. default
     return finish(CLUSTER, "default_local")
@@ -421,7 +427,9 @@ def continuation_body(
 def models_payload(cfg: RouterConfig) -> dict[str, Any]:
     """/v1/models. Clients use this to populate model pickers and to sanity
     check the endpoint before sending real traffic, so it has to be right."""
-    entries = [(cfg.local_model, CLUSTER), (cfg.local_model + "-heavy", cfg.heavy_tier)]
+    entries = [(cfg.local_model, CLUSTER)]
+    if cfg.heavy_tier:  # no "-heavy" alias when nothing heavy exists to take it
+        entries.append((cfg.local_model + "-heavy", cfg.heavy_tier))
     seen = {m for m, _ in entries}
     for name in cfg.cloud_tiers():
         tier = cfg.tiers[name]
