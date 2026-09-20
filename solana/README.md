@@ -17,7 +17,9 @@ program/            cluster_attest: native Rust program (no Anchor), one Cluster
 | Only the authority that initialized the Cluster account can change it | `load_cluster` |
 | A host must be registered before it can be in the worker set | `set_worker_set` → `UnknownNode` |
 | Every worker-set change bumps the epoch; failed transitions do not | `set_worker_set` |
-| A job can be committed once (its PDA is created, and creation fails if it exists) | `CommitJob` |
+| A job can be committed once (its PDA must not exist yet → `AlreadyExists`) | `CommitJob` |
+| Only the authority can close a Job PDA; its rent goes back to the authority | `CloseJob` |
+| Pre-funding a PDA address does not block its creation (top-up + allocate + assign) | `create_pda` |
 | At most 16 nodes, host ≤ 40 bytes, served_by ≤ 16 bytes | constants in `lib.rs` |
 
 On-chain state (`Cluster`): authority, `model_hash` (sha256 of the model file name
@@ -65,7 +67,8 @@ not the router.
 ## Tests
 
 ```bash
-cd program && cargo test                                       # state transitions, borsh layout pin
+cd program && cargo build-sbf --arch v3 && cargo test          # unit: transitions, layout pins; mollusk: the .so in the Agave runtime
+cd program && cargo test-sbf --arch v3                         # same, one command (builds the .so first)
 cd ../router && pytest -q test_attest.py                       # encoders, parsing, loop against a fake chain
 solana-test-validator -r &  solana program deploy ../solana/program/target/deploy/cluster_attest.so
 ATTEST_RPC_URL=http://127.0.0.1:8899 pytest -q test_attest_e2e.py   # real program: rules and events on chain
