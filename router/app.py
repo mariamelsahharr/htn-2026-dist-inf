@@ -20,7 +20,7 @@ import hashlib
 import json
 import os
 import time
-from collections import Counter
+from collections import Counter, deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     cloud_tools_model: str = ""
     cloud_tier_order: str = ",".join(DEFAULT_CLOUD_ORDER)
     tool_tier: str = ""
+    stream_usage_tiers: str = "baseten,openai,gemini"   # verified to return usage on the final streamed chunk
 
     size_threshold: int = 2048
     first_token_timeout: float = 8.0
@@ -98,16 +99,18 @@ class Settings(BaseSettings):
     @property
     def config(self) -> RouterConfig:
         tiers: dict[str, Tier] = {}
+        usage_tiers = {n.strip().lower() for n in self.stream_usage_tiers.split(",")}
         if self.cloud_base_url and self.cloud_api_key:
             tiers[BASETEN] = Tier(BASETEN, self.cloud_model, self.cloud_base_url.rstrip("/"), self.cloud_api_key,
-                                  tools_model=self.cloud_tools_model or None)
+                                  tools_model=self.cloud_tools_model or None, usage_in_stream=BASETEN in usage_tiers)
         for name in EXTRA_TIER_DEFAULTS:
             key, model, base = (getattr(self, f"{name}_api_key"), getattr(self, f"{name}_model"),
                                 getattr(self, f"{name}_base_url").rstrip("/"))
             if key and model and base:
                 tiers[name] = Tier(name, model, base, key,
                                    reasoning_effort=getattr(self, f"{name}_reasoning_effort", "") or None,
-                                   tools_model=getattr(self, f"{name}_tools_model", "") or None)
+                                   tools_model=getattr(self, f"{name}_tools_model", "") or None,
+                                   usage_in_stream=name in usage_tiers)
         local = self.local_base_url.rstrip("/")
         if not local.endswith("/v1"):
             local += "/v1"
@@ -142,6 +145,7 @@ class State:
     http_versions: dict[str, str] = field(default_factory=dict)
     breaker: Breaker = field(default_factory=Breaker)
     cache: dict[str, str] = field(default_factory=dict)
+    recent: deque = field(default_factory=lambda: deque(maxlen=50))   # last served requests, for rates
     started: float = field(default_factory=time.time)
 
 
@@ -246,6 +250,66 @@ def cache_key(body: dict[str, Any]) -> str:
 Attempt = Callable[[str, dict[str, Any]], Awaitable[Any]]
 
 
+RECENT_FIELDS = ("request_id", "served_by", "routed_to", "reason", "fallback", "stream", "latency_ms", "ttft_ms",
+                 "prompt_tokens", "gen_tokens", "tokens_source", "prefill_tps", "decode_tps", "tps", "ts")
+
+
+class TokenMeter:
+    """Token counts and rates for one answer. Exact when the upstream reports usage; the Pi API
+    sends one token per chunk so its chunk count is exact too; other tiers fall back to chars/4."""
+
+    def __init__(self, tier: Tier, prompt_estimate: int, t_first: float | None = None):
+        self.tier, self.prompt_estimate, self.t_first = tier, prompt_estimate, t_first
+        self.t_last: float | None = None
+        self.chunks = self.chars = 0
+        self.usage: dict[str, Any] | None = None
+
+    def see(self, line: str) -> None:
+        obj = _chunk_of(line)
+        if obj is None:
+            return
+        usage = obj.get("usage")
+        if isinstance(usage, dict) and usage.get("completion_tokens") is not None:
+            self.usage = usage
+        piece = _content_of(line)
+        if piece is not None:
+            now = time.time()
+            self.t_first = self.t_first or now
+            self.t_last = now
+            self.chunks += 1
+            self.chars += len(piece)
+
+    def see_completion(self, data: dict[str, Any]) -> None:
+        usage = data.get("usage")
+        if isinstance(usage, dict) and usage.get("completion_tokens") is not None:
+            self.usage = usage
+        self.chars += len(_answer_text(data))
+
+    def result(self, t0: float) -> dict[str, Any]:
+        if self.usage:
+            gen, source = int(self.usage["completion_tokens"]), "usage"
+            prompt = int(self.usage.get("prompt_tokens") or self.prompt_estimate)
+        elif self.tier.is_local and self.chunks:
+            gen, source, prompt = self.chunks, "chunks", self.prompt_estimate
+        else:
+            gen, source, prompt = round(self.chars / 4), "chars", self.prompt_estimate
+        out: dict[str, Any] = {"gen_tokens": gen, "tokens_source": source, "prompt_tokens_actual": prompt}
+        if self.t_first and self.t_first > t0:
+            out["prefill_tps"] = round(prompt / (self.t_first - t0), 1)
+        if self.t_first and self.t_last and self.t_last > self.t_first and gen > 1:
+            out["decode_tps"] = round((gen - 1) / (self.t_last - self.t_first), 1)
+        elapsed = time.time() - t0
+        if elapsed > 0 and gen:
+            out["tps"] = round(gen / elapsed, 1)
+        return out
+
+
+def _answer_text(data: dict[str, Any]) -> str:
+    """What a blocking completion said: its text, or its tool calls when there is no text."""
+    msg = ((data.get("choices") or [{}])[0]).get("message") or {}
+    return msg.get("content") or (json.dumps(msg["tool_calls"], sort_keys=True) if msg.get("tool_calls") else "")
+
+
 class Router:
     """Settings, live state, the HTTP client, and every request path."""
 
@@ -267,6 +331,8 @@ class Router:
         record = {**decision.as_log(), "served_by": served_by, "stream": stream,
                   "latency_ms": _ms(t0), "fallback": fallback, "error": error or None, **extra,
                   "ts": time.time(), "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())}
+        if served_by not in ("none", CACHE):
+            self.st.recent.append({k: record[k] for k in RECENT_FIELDS if k in record})
         try:
             with open(self.s.decision_log, "a") as fh:
                 fh.write(json.dumps(record) + "\n")
@@ -449,7 +515,9 @@ class Router:
         if fell_back:
             self.st.fallbacks[f"blocking:{last_err[:40]}"] += 1
         self.st.served[up] += 1
-        self.log(decision, up, stream=False, t0=t0, fallback=fell_back, error=last_err)
+        meter = TokenMeter(self.cfg.tier(up), decision.prompt_tokens)
+        meter.see_completion(data)
+        self.log(decision, up, stream=False, t0=t0, fallback=fell_back, error=last_err, **meter.result(t0))
         return JSONResponse(data, headers=self.headers_for(decision, up, fell_back))
 
     async def handle_stream(self, body: dict[str, Any], decision: Decision, t0: float):
@@ -475,12 +543,14 @@ class Router:
                     fallback: bool, last_err: str) -> AsyncIterator[bytes]:
         partial: list[str] = []
         finished = False
+        meter = TokenMeter(self.cfg.tier(served_by), decision.prompt_tokens, t_first=t0 + ttft / 1000.0)
 
         def forward(line: str) -> bytes:
             nonlocal finished
             err = _error_of(line)
             if err:
                 raise UpstreamError(err)
+            meter.see(line)
             piece = _content_of(line)
             if piece:
                 partial.append(piece)
@@ -494,7 +564,7 @@ class Router:
                 yield forward(line)
             yield sse("data: [DONE]")
             self.log(decision, served_by, stream=True, t0=t0, fallback=fallback, error=last_err,
-                     ttft_ms=ttft, gen_chars=sum(len(p) for p in partial))
+                     ttft_ms=ttft, gen_chars=sum(len(p) for p in partial), **meter.result(t0))
         except UPSTREAM_ERRORS as e:
             err, text, recovered = _err(e), "".join(partial), False
             # no continuation onto a forced upstream, or onto an answer that already finished
@@ -511,7 +581,7 @@ class Router:
                     err += f" | continuation failed: {e2}"[:120]
             yield sse("data: [DONE]")
             self.log(decision, served_by, stream=True, t0=t0, fallback=True, ttft_ms=ttft,
-                     gen_chars=len(text), mid_stream_error=err, recovered=recovered)
+                     gen_chars=len(text), mid_stream_error=err, recovered=recovered, **meter.result(t0))
         finally:
             with contextlib.suppress(Exception):
                 await gen.aclose()   # client hung up: release the upstream connection now
@@ -533,7 +603,10 @@ class Router:
                 return JSONResponse(error_body(f"all upstreams failed: {last_err}"), status_code=502,
                                     headers={"X-Served-By": "none"})
             self.st.served[up] += 1
-            self.log(decision, up, stream=False, t0=t0, fallback=i > 0, error=last_err, api="responses")
+            meter = TokenMeter(self.cfg.tier(up), decision.prompt_tokens)
+            meter.see_completion(data)
+            self.log(decision, up, stream=False, t0=t0, fallback=i > 0, error=last_err, api="responses",
+                     **meter.result(t0))
             for _ in builder.feed(data):
                 pass
             return JSONResponse(builder.response_object(), headers=self.headers_for(decision, up, i > 0))
@@ -550,25 +623,29 @@ class Router:
         self.st.served[up] += 1
         ttft = _ms(t0)
 
+        meter = TokenMeter(self.cfg.tier(up), decision.prompt_tokens, t_first=t0 + ttft / 1000.0)
+
         async def events() -> AsyncIterator[bytes]:
             for ev in builder.start():
                 yield ev.encode()
             try:
                 for line in buffered:
+                    meter.see(line)
                     for ev in self._feed_line(builder, line):
                         yield ev.encode()
                 async for _is_content, line in gen:
+                    meter.see(line)
                     for ev in self._feed_line(builder, line):
                         yield ev.encode()
                 for ev in builder.finish():
                     yield ev.encode()
                 self.log(decision, up, stream=True, t0=t0, fallback=fell_back, error=last_err,
-                         api="responses", ttft_ms=ttft, gen_chars=len("".join(builder.text)))
+                         api="responses", ttft_ms=ttft, gen_chars=len("".join(builder.text)), **meter.result(t0))
             except UPSTREAM_ERRORS as e:
                 for ev in builder.finish(error=_err(e)):
                     yield ev.encode()
                 self.log(decision, up, stream=True, t0=t0, fallback=True, api="responses",
-                         ttft_ms=ttft, mid_stream_error=_err(e), recovered=False)
+                         ttft_ms=ttft, mid_stream_error=_err(e), recovered=False, **meter.result(t0))
             finally:
                 with contextlib.suppress(Exception):
                     await gen.aclose()
@@ -620,7 +697,21 @@ class Router:
             "fallbacks": dict(self.st.fallbacks),
             "cluster_status": self.st.cluster_status,
             "breakers_open_s": self.st.breaker.snapshot(time.time()),
+            "rates": self.rates(),
+            "recent": list(self.st.recent),
         }
+
+    def rates(self) -> dict[str, dict[str, Any]]:
+        """Per-upstream means over the last served requests: what the dashboard shows as tok/s."""
+        out: dict[str, dict[str, Any]] = {}
+        for up in {r["served_by"] for r in self.st.recent}:
+            rows = [r for r in self.st.recent if r["served_by"] == up]
+            summary: dict[str, Any] = {"n": len(rows)}
+            for key in ("decode_tps", "prefill_tps", "tps", "ttft_ms", "latency_ms"):
+                vals = [r[key] for r in rows if r.get(key) is not None]
+                summary[key] = round(sum(vals) / len(vals), 1) if vals else None
+            out[up] = summary
+        return out
 
 
 # ----------------------------------------------------------------------- app

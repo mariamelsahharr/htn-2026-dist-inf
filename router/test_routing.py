@@ -430,3 +430,12 @@ def test_forced_upstream_has_no_fallback():
 def test_two_upstream_config_keeps_the_old_chain():
     d = route(body("hi"), {}, "healthy", CFG)
     assert fallback_chain(d, "healthy", CFG) == [CLUSTER, BASETEN]
+
+
+def test_tier_asks_for_usage_only_when_it_supports_it():
+    t = Tier("baseten", "glm", "https://x/v1", "k", usage_in_stream=True)
+    assert t.payload({"messages": []}, stream=True)["stream_options"] == {"include_usage": True}
+    assert "stream_options" not in t.payload({"messages": []}, stream=False)
+    assert "stream_options" not in Tier("snowflake", "m", "https://x/v1", "k").payload({"messages": []}, stream=True)
+    kept = t.payload({"messages": [], "stream_options": {"other": 1}}, stream=True)["stream_options"]
+    assert kept == {"other": 1, "include_usage": True}

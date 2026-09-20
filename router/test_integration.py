@@ -58,7 +58,7 @@ async def local_models():
     return {"object": "list", "data": [{"id": "local-3b", "object": "model"}]}
 
 
-async def _sse(words, model, die_after=None, stall=False):
+async def _sse(words, model, die_after=None, stall=False, usage=False):
     if stall:
         await asyncio.sleep(30)
     for i, w in enumerate(words):
@@ -69,6 +69,8 @@ async def _sse(words, model, die_after=None, stall=False):
         yield f"data: {json.dumps(chunk)}\n\n".encode()
         await asyncio.sleep(0.01)
     yield f"data: {json.dumps({'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n".encode()
+    if usage:   # what OpenAI/Baseten/Gemini send for stream_options.include_usage
+        yield f"data: {json.dumps({'choices': [], 'usage': {'prompt_tokens': 11, 'completion_tokens': 40}})}\n\n".encode()
     yield b"data: [DONE]\n\n"
 
 
@@ -99,7 +101,8 @@ async def _handle(request: Request, which: str):
     return StreamingResponse(
         _sse(words, which,
              die_after=3 if mode == "die_midstream" else None,
-             stall=(mode == "hang")),
+             stall=(mode == "hang"),
+             usage=bool((body.get("stream_options") or {}).get("include_usage"))),
         media_type="text/event-stream")
 
 
@@ -418,6 +421,25 @@ def main():
     st = c.get(f"http://127.0.0.1:{ROUTER_PORT}/stats").json()
     check("/stats reports pct_local", st.get("pct_local") is not None, json.dumps(st)[:120])
     check("/stats counts fallbacks", sum(st.get("fallbacks", {}).values()) > 0, str(st.get("fallbacks")))
+
+    print("\n--- token rates ---")
+    set_mode(local="ok", cloud="ok", status="healthy")
+    stream_text(c, {"messages": [{"role": "user", "content": "rate me"}]})
+    recs = [json.loads(line) for line in open("/tmp/itest_decisions.jsonl").read().strip().split("\n")]
+    rec = recs[-1]
+    check("cluster stream counts one token per chunk",
+          rec["served_by"] == "cluster" and rec["gen_tokens"] == 8 and rec["tokens_source"] == "chunks", str(rec)[:160])
+    check("cluster stream has decode and prefill rates", rec.get("decode_tps", 0) > 0 and rec.get("prefill_tps", 0) > 0,
+          f"{rec.get('decode_tps')} {rec.get('prefill_tps')}")
+    stream_text(c, {"messages": [{"role": "user", "content": "rate me"}]}, headers={"X-Force-Upstream": "baseten"})
+    rec = json.loads(open("/tmp/itest_decisions.jsonl").read().strip().split("\n")[-1])
+    check("cloud stream asks for usage and takes the exact count",
+          rec["served_by"] == "baseten" and rec["gen_tokens"] == 40 and rec["tokens_source"] == "usage"
+          and rec["prompt_tokens_actual"] == 11, str(rec)[:160])
+    st = c.get(f"http://127.0.0.1:{ROUTER_PORT}/stats").json()
+    check("/stats has per-upstream rates and the recent answers",
+          st["rates"]["cluster"]["decode_tps"] > 0 and st["rates"]["baseten"]["n"] >= 1 and len(st["recent"]) > 5,
+          json.dumps(st.get("rates"))[:160])
 
     lines = open("/tmp/itest_decisions.jsonl").read().strip().split("\n")
     check("decision log written as JSONL", len(lines) > 10, f"{len(lines)} lines")

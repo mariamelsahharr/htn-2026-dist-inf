@@ -51,6 +51,17 @@ both take traffic; `restarting`, `down` and a degraded cluster below
 URL is unreachable the router asks the root API directly, so it works before the
 supervisor exists and still notices a dead root afterwards.
 
+## Token rates
+
+Every logged answer carries `gen_tokens`, `tokens_source` and the rates behind the
+dashboard: `prefill_tps` (prompt tokens over the first-token wait), `decode_tps`
+(tokens after the first over the time to the last) and `tps` overall. Counts are
+exact when the upstream reports usage (`STREAM_USAGE_TIERS`, default
+`baseten,openai,gemini`, asks for `stream_options.include_usage`) and for the
+cluster, whose API sends one token per chunk; anything else is chars/4 and says
+so. `/stats` has `rates` (per-upstream means over the last 50 answers) and
+`recent` (those answers).
+
 ## Codex
 
 `~/.codex/config.toml` (user-level; Codex ignores provider blocks in project configs):

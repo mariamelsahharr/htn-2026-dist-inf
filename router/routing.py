@@ -53,6 +53,7 @@ class Tier:
     is_local: bool = False
     reasoning_effort: str | None = None   # OpenAI/Gemini knob; some models need "none" to accept tools
     tools_model: str | None = None        # used instead of `model` when the request carries tools
+    usage_in_stream: bool = False         # tier honours stream_options.include_usage (exact token counts)
 
     def model_for_request(self, with_tools: bool) -> str:
         return self.tools_model if (with_tools and self.tools_model) else self.model
@@ -65,6 +66,8 @@ class Tier:
         out = {**body, **overrides}
         if self.reasoning_effort:
             out["reasoning_effort"] = self.reasoning_effort
+        if out.get("stream") and self.usage_in_stream:
+            out["stream_options"] = {**(out.get("stream_options") or {}), "include_usage": True}
         return out
 
     def headers(self) -> dict[str, str]:
