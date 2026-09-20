@@ -140,7 +140,7 @@ export function Chat() {
   return (
     <section
       aria-label="Chat"
-      className="bg-card border-border flex h-[min(34rem,70dvh)] min-w-0 flex-col rounded-lg border shadow-sm lg:sticky lg:top-4 lg:h-[calc(100dvh-2rem)] lg:max-h-[52rem]"
+      className="bg-card border-border flex h-[min(34rem,70dvh)] min-w-0 flex-col rounded-lg border shadow-sm lg:sticky lg:top-4 lg:h-[max(30rem,calc(100dvh-17rem))] lg:max-h-[52rem]"
     >
       <div className="border-border flex items-center justify-between gap-3 border-b px-4 py-2">
         <div className="flex min-w-0 items-baseline gap-3">
