@@ -32,15 +32,8 @@
 
   tasks:
     # The Pis usually have no route to the internet (hotspot without upstream): apt then hangs
-    # for minutes per host before failing. Run with -e apt_online=false to skip both apt tasks
-    # on a cluster that is already provisioned; the optional packages fall back gracefully.
-    - name: Update apt cache
-      tags: [network]
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
-      when: apt_online | default(true) | bool
-
+    # for minutes per host before failing. This is the only apt task; skip it with
+    # --skip-tags network or -e apt_online=false on a cluster that already has the packages.
     - name: Install dependencies
       tags: [network]
       when: apt_online | default(true) | bool
