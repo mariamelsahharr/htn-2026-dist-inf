@@ -14,11 +14,15 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hmac
 import json
 import logging
+import logging.handlers
 import os
+import re
 import shlex
 import signal
+import socket
 import struct
 import subprocess
 import sys
@@ -27,10 +31,11 @@ import time
 import urllib.error
 import urllib.request
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from email.message import Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -53,11 +58,43 @@ def now_iso() -> str:
 
 try:
     import sentry_sdk
-except ImportError:  # Pis without the SDK: telemetry is a no-op
+    from sentry_sdk.integrations.logging import LoggingIntegration
+except ImportError:  # Pis without the SDK (apt python3-sentry-sdk): telemetry is a no-op
     sentry_sdk = None
+    LoggingIntegration = None
 
 _pylog = logging.getLogger("supervisor")
 _SENTRY_ON = False
+_JOURNAL_PRIORITY = {logging.DEBUG: 7, logging.INFO: 6, logging.WARNING: 4, logging.ERROR: 3, logging.CRITICAL: 2}
+
+
+class _JournalFormatter(logging.Formatter):
+    """ISO-8601 UTC timestamps; under systemd a <priority> prefix so journald keeps the level."""
+
+    def __init__(self) -> None:
+        super().__init__("%(message)s")
+        self.journal = "JOURNAL_STREAM" in os.environ
+
+    def format(self, record: logging.LogRecord) -> str:
+        ts = datetime.fromtimestamp(record.created, UTC).isoformat(timespec="milliseconds")
+        line = f"{ts} {record.getMessage()}"
+        return f"<{_JOURNAL_PRIORITY.get(record.levelno, 6)}>{line}" if self.journal else line
+
+
+def configure_logging() -> None:
+    """One stdout handler (journald under systemd); Sentry hooks the same records. Idempotent."""
+    if _pylog.handlers:
+        return
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(_JournalFormatter())
+    _pylog.addHandler(handler)
+    _pylog.setLevel(logging.INFO)
+    _pylog.propagate = False
+
+
+def log(msg: str, level: int = logging.INFO) -> None:
+    configure_logging()
+    _pylog.log(level, msg)
 
 
 def sentry_init_from_env() -> None:
@@ -67,11 +104,15 @@ def sentry_init_from_env() -> None:
     if not (sentry_sdk and dsn):
         return
     env = os.environ.get("SENTRY_ENVIRONMENT", "demo")
+    kwargs: dict = {"dsn": dsn, "environment": env, "traces_sample_rate": 0.0}
+    if LoggingIntegration is not None:
+        # every log() record becomes a Sentry log line; issues are raised explicitly by sentry_note
+        kwargs["integrations"] = [LoggingIntegration(level=logging.INFO, event_level=None)]
     try:
         try:
-            sentry_sdk.init(dsn=dsn, environment=env, enable_logs=True, traces_sample_rate=0.0)
+            sentry_sdk.init(enable_logs=True, **kwargs)
         except TypeError:  # older SDK without enable_logs
-            sentry_sdk.init(dsn=dsn, environment=env, traces_sample_rate=0.0)
+            sentry_sdk.init(**kwargs)
         _SENTRY_ON = True
         log("sentry telemetry enabled")
     except Exception:
@@ -79,32 +120,30 @@ def sentry_init_from_env() -> None:
 
 
 def sentry_note(msg: str, level: str = "info") -> None:
-    """Ship a supervisor event to Sentry (log + message for warning/error). Never raises."""
-    if not _SENTRY_ON or sentry_sdk is None:
+    """Raise a Sentry issue for a warning/error; the log line itself already went out via log(). Never raises."""
+    if not _SENTRY_ON or sentry_sdk is None or level not in ("warning", "error"):
         return
+    with contextlib.suppress(Exception):
+        sentry_sdk.capture_message(msg, level=level)
+
+
+def sd_notify(state: str) -> bool:
+    """systemd sd_notify(3) over $NOTIFY_SOCKET (AF_UNIX datagram). No-op, False, outside systemd."""
+    addr = os.environ.get("NOTIFY_SOCKET")
+    if not addr:
+        return False
+    if addr.startswith("@"):  # abstract namespace
+        addr = "\0" + addr[1:]
     try:
-        getattr(_pylog, level, _pylog.info)(msg)
-        if level in ("warning", "error"):
-            sentry_sdk.capture_message(msg, level=level)
-    except Exception:
-        pass
-
-
-def log(msg: str) -> None:
-    print(f"{now_iso()} {msg}", flush=True)
-    if _SENTRY_ON:
-        with contextlib.suppress(Exception):
-            _pylog.info(msg)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as s:
+            s.connect(addr)
+            s.send(state.encode())
+        return True
+    except OSError:
+        return False
 
 
 # ------------------------------------------------------------------ pure logic
-
-
-def largest_power_of_two_at_most(n: int) -> int:
-    p = 1
-    while p * 2 <= n:
-        p *= 2
-    return p
 
 
 def powers_of_two(max_nodes: int) -> list[int]:
@@ -191,6 +230,92 @@ def parse_workers(spec: str, default_port: int) -> list[tuple[str, int]]:
     return out
 
 
+def worker_process_present(doc: dict | None) -> bool:
+    """False only when the node agent positively reports no dllama worker socket on its port:
+    neither listening for a root nor holding a root's connection (the worker closes its
+    listen socket once the root connects). No telemetry or an older agent: trust the ping."""
+    if not doc:
+        return True
+    listening, connections = doc.get("worker_listening"), doc.get("worker_connections")
+    if listening is None and connections is None:
+        return True
+    return bool(listening) or bool(connections)
+
+
+def post_allowed(client_ip: str, headers: Mapping[str, str] | Message, token: str | None) -> bool:
+    """POST is for the operator on the root itself, or for a caller presenting SUPERVISOR_TOKEN."""
+    if client_ip in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+        return True
+    if not token:
+        return False
+    auth = headers.get("Authorization") or ""
+    presented = auth[len("Bearer ") :] if auth.startswith("Bearer ") else (headers.get("X-Supervisor-Token") or "")
+    return bool(presented) and hmac.compare_digest(presented, token)
+
+
+# dllama-api (src/dllama-api.cpp) prints these every 3 s, forever, while a worker is unreachable
+CONNECT_RETRY_RE = re.compile(r"Connection error|Cannot connect", re.IGNORECASE)
+RETRY_FILLER_RE = re.compile(r"Retrying in")
+# what a root that could not hold its share of the weights leaves in the log (or none: SIGKILL)
+OOM_RE = re.compile(r"bad_alloc|Cannot allocate memory|out of memory|Killed process|mmap.*failed", re.IGNORECASE)
+
+
+def tail_lines(path: Path, n: int = 20, nbytes: int = 8192) -> list[str]:
+    """The last n non-empty lines of a file, reading at most nbytes."""
+    try:
+        with path.open("rb") as fh:
+            end = fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, end - nbytes))
+            raw = fh.read().split(b"\n")
+    except OSError:
+        return []
+    return [ln.decode(errors="replace").strip() for ln in raw if ln.strip()][-n:]
+
+
+class LogTail:
+    """Lines a file gained since the last call; survives truncation and rotation."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.pos = path.stat().st_size if path.exists() else 0
+        self.partial = b""
+
+    def read_new(self) -> list[str]:
+        try:
+            size = self.path.stat().st_size
+            if size < self.pos:
+                self.pos, self.partial = 0, b""
+            if size == self.pos:
+                return []
+            with self.path.open("rb") as fh:
+                fh.seek(self.pos)
+                data = self.partial + fh.read(size - self.pos)
+            self.pos = size
+        except OSError:
+            return []
+        lines = data.split(b"\n")
+        self.partial = lines.pop()
+        return [ln.decode(errors="replace").strip() for ln in lines]
+
+
+def cap_file(path: Path, max_bytes: int) -> bool:
+    """Keep an append-only file that a child process writes to under max_bytes: truncate it in
+    place and write the newest half back (O_APPEND writers land after it). True when capped."""
+    try:
+        if path.stat().st_size <= max_bytes:
+            return False
+        keep = max_bytes // 2
+        with path.open("r+b") as fh:
+            fh.seek(-keep, os.SEEK_END)
+            tail = fh.read()
+            fh.seek(0)
+            fh.truncate(0)
+            fh.write(f"=== {now_iso()} capped at {max_bytes} bytes; older lines dropped\n".encode() + tail)
+        return True
+    except OSError:
+        return False
+
+
 class Worker:
     """Worker host with probe hysteresis: first probe decides, then fail_after / ok_after."""
 
@@ -227,12 +352,13 @@ class Worker:
                 self.alive = False
         return self.alive if self.alive != before else None
 
-    def as_dict(self, in_set: bool) -> dict:
+    def as_dict(self, in_set: bool, reset_failed: bool = False) -> dict:
         return {
             "host": self.host,
             "port": self.port,
             "alive": self.alive,
             "in_set": in_set,
+            "reset_failed": reset_failed,
             "consecutive_fails": self.fails,
             "last_seen": self.last_seen,
             "last_probe": self.last_probe,
@@ -272,7 +398,22 @@ class Config:
     # 0 = off. dllama-api is single-threaded, so back-to-back generations look like a
     # stall to a GET probe; process exit and worker loss are the reliable signals.
     api_stall_timeout: float = 0.0
+    # Retry delay after a failed launch: min(max_launch_backoff, launch_backoff * 2**launch_failures).
     launch_backoff: float = 5.0
+    max_launch_backoff: float = 300.0
+    # A root that dies sooner than this after becoming ready counts as a launch failure (crash loop),
+    # and one that has stayed up this long clears the failure counter.
+    stable_after: float = 60.0
+    # A root that dies sooner than this after its spawn never reached the workers: no SSH reset.
+    quick_exit: float = 2.0
+    # Abandon a launch once the dllama-api log shows this many consecutive worker-connect retries
+    # (one every 3 s), instead of waiting out ready_timeout.
+    max_connect_retries: int = 10
+    # A worker whose SSH reset failed twice is left out of the set; retry its reset this often.
+    reset_retry_interval: float = 60.0
+    # SD card protection: dllama-api.log is capped in place, supervisor-events.jsonl rotates.
+    root_log_max_bytes: int = 20 * 1024 * 1024
+    events_max_bytes: int = 2 * 1024 * 1024
     # Explicit list of allowed node counts; None derives them from the model header.
     node_counts: list[int] | None = None
     # Below this many nodes the supervisor reports `down` instead of launching (RAM floor).
@@ -327,6 +468,35 @@ class Supervisor:
         self.model_header: dict | None = None
         self.valid_counts, self.node_counts_source = self._resolve_node_counts()
         self._snapshot: dict = {}
+        self._reset_failed: set[str] = set()
+        self._last_reset_retry = 0.0
+        self._log_tail: LogTail | None = None
+        self._last_cap_check = 0.0
+        self._events_log = self._open_events_log()
+
+    @property
+    def root_log_path(self) -> Path:
+        return Path(self.cfg.log_dir) / "dllama-api.log"
+
+    def _open_events_log(self) -> logging.Logger | None:
+        """supervisor-events.jsonl, rotated by size: the failover history outlives a supervisor restart."""
+        try:
+            Path(self.cfg.log_dir).mkdir(parents=True, exist_ok=True)
+            handler = logging.handlers.RotatingFileHandler(
+                Path(self.cfg.log_dir) / "supervisor-events.jsonl", maxBytes=self.cfg.events_max_bytes, backupCount=2
+            )
+        except OSError as e:
+            log(f"no events log in {self.cfg.log_dir}: {e}", logging.WARNING)
+            return None
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        events = logging.getLogger("supervisor.events")
+        for old in list(events.handlers):  # one supervisor per process; tests build several
+            events.removeHandler(old)
+            old.close()
+        events.addHandler(handler)
+        events.setLevel(logging.INFO)
+        events.propagate = False
+        return events
 
     def _resolve_node_counts(self) -> tuple[list[int], str]:
         max_nodes = len(self.workers) + 1
@@ -335,7 +505,8 @@ class Supervisor:
             if not counts:
                 log(
                     f"--node-counts {self.cfg.node_counts} has no entry <= {max_nodes} nodes; "
-                    "the supervisor will stay down until that changes"
+                    "the supervisor will stay down until that changes",
+                    logging.WARNING,
                 )
             return counts, "override"
         try:
@@ -343,7 +514,7 @@ class Supervisor:
             counts = valid_node_counts(self.model_header, max_nodes)
             return counts, "model header"
         except (OSError, ValueError, KeyError, struct.error) as e:
-            log(f"cannot read model header ({e}); assuming powers of two")
+            log(f"cannot read model header ({e}); assuming powers of two", logging.WARNING)
             return powers_of_two(max_nodes), "powers of two (header unreadable)"
 
     def choose(self, alive: list[Worker]) -> list[Worker] | None:
@@ -352,12 +523,14 @@ class Supervisor:
     def launch_or_stand_down(self, reason: str) -> None:
         """Launch on the best set the survivors allow, or report down and wait."""
         self.valid_counts, self.node_counts_source = self._resolve_node_counts()  # the model file may have changed
-        desired = self.choose(self.alive_workers())
+        desired = self.choose(self.eligible_workers())
         if desired is None:
             msg = (
-                f"only {len(self.alive_workers()) + 1} node(s) reachable; need a valid count "
+                f"only {len(self.eligible_workers()) + 1} node(s) usable; need a valid count "
                 f"in {self.valid_counts} of at least {self.cfg.min_nodes}"
             )
+            if self._reset_failed:
+                msg += "; excluded after a failed reset: " + ", ".join(sorted(self._reset_failed))
             self.active = []
             if not (self.state == DOWN and self.state_reason == msg):
                 self.set_state(DOWN, msg)
@@ -367,16 +540,12 @@ class Supervisor:
 
     # ----- bookkeeping ---------------------------------------------------------
 
-    def event(self, msg: str) -> None:
-        log(msg)
+    def event(self, msg: str, level: int = logging.INFO) -> None:
+        log(msg, level)
         entry = {"t": time.time(), "msg": msg}
         self.events.append(entry)
-        try:  # the failover history outlives a supervisor restart
-            Path(self.cfg.log_dir).mkdir(parents=True, exist_ok=True)
-            with (Path(self.cfg.log_dir) / "supervisor-events.jsonl").open("a") as fh:
-                fh.write(json.dumps(entry) + "\n")
-        except OSError:
-            pass
+        if self._events_log is not None:
+            self._events_log.info(json.dumps(entry))
 
     def set_state(self, state: str, reason: str) -> None:
         changed = state != self.state
@@ -384,12 +553,14 @@ class Supervisor:
             self.state_since = time.time()
         self.state = state
         self.state_reason = reason
-        self.event(f"state={state}: {reason}")
+        level = {DEGRADED: logging.WARNING, RESTARTING: logging.WARNING, DOWN: logging.ERROR}.get(state, logging.INFO)
+        self.event(f"state={state}: {reason}", level)
         if changed:
-            level = {HEALTHY: "info", DEGRADED: "warning", RESTARTING: "warning", DOWN: "error"}.get(state, "info")
             sentry_note(
-                f"cluster state -> {state}: {reason} (active={len(self.active)}, restarts={self.restarts})", level
+                f"cluster state -> {state}: {reason} (active={len(self.active)}, restarts={self.restarts})",
+                logging.getLevelName(level).lower(),
             )
+        self.publish()  # /status must not say healthy for another tick after the root died
 
     @property
     def serving(self) -> bool:
@@ -410,20 +581,34 @@ class Supervisor:
         if not self.workers:
             return
         now = now or time.time()
-        results = list(self._pool.map(self._probe, [w.host for w in self.workers]))
-        for w, ok in zip(self.workers, results, strict=True):
-            change = w.record(ok, now)
-            if change is not None:
-                self.event(f"worker {w.host} {'reachable' if change else 'unreachable'}")
+        pings = list(self._pool.map(self._probe, [w.host for w in self.workers]))
+        docs: dict[str, dict | None] = {}
         if self.cfg.telemetry_port:
-            hosts = [w.host for w in self.workers if w.alive] + ["127.0.0.1"]
+            hosts = [w.host for w, ok in zip(self.workers, pings, strict=True) if ok] + ["127.0.0.1"]
             docs = dict(zip(hosts, self._pool.map(self._telemetry, hosts), strict=True))
-            for w in self.workers:
-                w.telemetry = docs.get(w.host) if w.alive else None
             self.root_telemetry = docs.get("127.0.0.1")
+        for w, ping_ok in zip(self.workers, pings, strict=True):
+            doc = docs.get(w.host) if ping_ok else None
+            # a Pi that answers ping but has no dllama worker process is not a worker
+            change = w.record(ping_ok and worker_process_present(doc), now)
+            w.telemetry = doc if w.alive else None
+            if change is None:
+                continue
+            if change:
+                self._reset_failed.discard(w.host)  # it came back (rebooted or restarted): reset it afresh
+                self.event(f"worker {w.host} reachable")
+            elif ping_ok:
+                unit = (doc or {}).get("worker_unit")
+                self.event(f"worker {w.host} has no dllama worker process (ping ok, unit {unit})", logging.WARNING)
+            else:
+                self.event(f"worker {w.host} unreachable", logging.WARNING)
 
     def alive_workers(self) -> list[Worker]:
         return [w for w in self.workers if w.alive]
+
+    def eligible_workers(self) -> list[Worker]:
+        """Alive workers the root can actually use: a failed SSH reset benches one until it resets or reboots."""
+        return [w for w in self.workers if w.alive and w.host not in self._reset_failed]
 
     def _fetch_telemetry(self, host: str) -> dict | None:
         url = f"http://{host}:{self.cfg.telemetry_port}/telemetry"
@@ -469,7 +654,8 @@ class Supervisor:
 
     def _spawn_root(self, cmd: list[str], reason: str) -> subprocess.Popen:
         Path(self.cfg.log_dir).mkdir(parents=True, exist_ok=True)
-        path = Path(self.cfg.log_dir) / "dllama-api.log"
+        path = self.root_log_path
+        cap_file(path, self.cfg.root_log_max_bytes)
         f = path.open("ab")  # handed to the child process; closed with it
         f.write(f"\n=== {now_iso()} gen={self.generation} {reason}\n$ {shlex.join(cmd)}\n".encode())
         f.flush()
@@ -506,12 +692,48 @@ class Supervisor:
             self._proc_log = None
         self.ready_at = None
         self.last_api_ok = None
+        self.publish()
 
-    def reset_workers(self, workers: list[Worker]) -> None:
+    def reset_workers(self, workers: list[Worker]) -> list[Worker]:
+        """Restart dllama-worker over SSH on each host, one retry. A host that still fails is
+        benched (see eligible_workers): it may be wedged on the dead root's session and would
+        stall the new root's connect. Returns the workers that could not be reset."""
         if not self.cfg.reset_workers or not workers:
-            return
+            return []
         self.event("resetting workers: " + ", ".join(w.host for w in workers))
-        list(self._pool.map(self._reset_worker, [w.host for w in workers]))
+        failed = self._reset_round(workers)
+        if failed:
+            self.publish()  # feeds the watchdog before a second round of SSH timeouts
+            failed = self._reset_round(failed)
+        failed_ids = {id(w) for w in failed}
+        for w in workers:
+            if id(w) in failed_ids:
+                self._reset_failed.add(w.host)
+            else:
+                self._reset_failed.discard(w.host)
+        if failed:
+            self.event(
+                "reset failed twice, leaving out of the set: " + ", ".join(w.host for w in failed), logging.WARNING
+            )
+        return failed
+
+    def _reset_round(self, workers: list[Worker]) -> list[Worker]:
+        results = list(self._pool.map(self._reset_worker, [w.host for w in workers]))
+        return [w for w, ok in zip(workers, results, strict=True) if not ok]
+
+    def _retry_failed_resets(self, now: float) -> None:
+        """A benched worker gets another reset every reset_retry_interval; success makes it eligible again."""
+        if not self._reset_failed or now - self._last_reset_retry < self.cfg.reset_retry_interval:
+            return
+        self._last_reset_retry = now
+        benched = [w for w in self.workers if w.host in self._reset_failed and w.alive]
+        if not benched:
+            return
+        failed_ids = {id(w) for w in self._reset_round(benched)}
+        for w in benched:
+            if id(w) not in failed_ids:
+                self._reset_failed.discard(w.host)
+                self.event(f"worker {w.host} reset succeeded; eligible again")
 
     def _ssh_reset(self, host: str) -> bool:
         cmd = shlex.split(self.cfg.reset_cmd.format(host=shlex.quote(host)))
@@ -519,13 +741,38 @@ class Supervisor:
             r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=20)
             if r.returncode != 0:
                 err = r.stderr.decode(errors="replace").strip()[:200]
-                log(f"reset of {host} failed (rc={r.returncode}): {err}")
+                log(f"reset of {host} failed (rc={r.returncode}): {err}", logging.WARNING)
             return r.returncode == 0
         except (subprocess.SubprocessError, OSError) as e:
-            log(f"reset of {host} failed: {e}")
+            log(f"reset of {host} failed: {e}", logging.WARNING)
             return False
 
     # ----- launch / restart ----------------------------------------------------
+
+    def _launch_failed(self) -> float:
+        """Count a failed launch; returns the exponential backoff before the next attempt."""
+        self.launch_failures += 1
+        return min(self.cfg.max_launch_backoff, self.cfg.launch_backoff * 2**self.launch_failures)
+
+    def _exit_diagnosis(self, rc: int | None) -> str:
+        """Why the root died, from its exit code and the end of dllama-api.log. An out-of-memory
+        exit is the usual failure of a bigger model and must read as such, not as a silent loop."""
+        recent = [ln for ln in tail_lines(self.root_log_path) if not ln.startswith("===")]
+        last = recent[-1][:160] if recent else ""
+        oom = rc in (-signal.SIGKILL, 128 + signal.SIGKILL) or any(OOM_RE.search(ln) for ln in recent)
+        out = f"last log line: {last!r}" if last else "no output in dllama-api.log"
+        if oom:
+            out = (
+                "likely out of memory: this node's share of the model does not fit its RAM "
+                "(check mem_available_mb in /status telemetry; raise --min-nodes or pick a smaller model); " + out
+            )
+        return out
+
+    def _root_reached_workers(self, now: float | None = None) -> bool:
+        """A root that died within quick_exit of its spawn (bad flag, missing model) never
+        connected to the workers, so they are not wedged and need no SSH reset."""
+        now = now or time.time()
+        return self.launched_at is not None and now - self.launched_at >= self.cfg.quick_exit
 
     def launch(self, workers: list[Worker], reason: str) -> bool:
         workers = list(workers)
@@ -540,17 +787,16 @@ class Supervisor:
         try:
             self.proc = self._spawn(cmd, reason)
         except OSError as e:
-            self.launch_failures += 1
-            self._next_launch_at = time.time() + self.cfg.launch_backoff
+            self._next_launch_at = time.time() + self._launch_failed()
             self.set_state(DOWN, f"cannot start {self.cfg.dllama_bin}: {e}")
             return False
+        self._log_tail = LogTail(self.root_log_path)
         problem = self.wait_ready()
         if problem is None:
             self.ready_at = time.time()
             self.load_seconds = round(self.ready_at - self.launched_at, 1)
             self.last_api_ok = self.ready_at
             self.last_api_check = self.ready_at
-            self.launch_failures = 0
             missing = [w.host for w in self.workers if w not in workers]
             if missing:
                 self.set_state(
@@ -559,17 +805,25 @@ class Supervisor:
             else:
                 self.set_state(HEALTHY, f"serving on all {n} node(s) after {self.load_seconds}s")
             return True
-        self.launch_failures += 1
+        touched = self._root_reached_workers()
+        if self.proc is not None and self.proc.poll() is not None:
+            problem += f"; {self._exit_diagnosis(self.proc.returncode)}"
         self.kill_root(problem)
-        self.reset_workers([w for w in workers if w.alive is not False])
+        if touched:
+            self.reset_workers([w for w in workers if w.alive is not False])
         self.active = []
-        self._next_launch_at = time.time() + self.cfg.launch_backoff
-        self.set_state(DOWN if self.launch_failures >= 3 else RESTARTING, problem)
+        delay = self._launch_failed()
+        self._next_launch_at = time.time() + delay
+        self.set_state(
+            DOWN if self.launch_failures >= 3 else RESTARTING,
+            f"{problem}; launch failure {self.launch_failures}, next attempt in {delay:.0f}s",
+        )
         return False
 
     def wait_ready(self) -> str | None:
         """Block until /v1/models answers. None when ready, else the reason it will not."""
         deadline = time.time() + self.cfg.ready_timeout
+        retries = 0
         while not self._stop.is_set():
             rc = self.proc.poll() if self.proc else -1
             if rc is not None:
@@ -584,11 +838,25 @@ class Supervisor:
             dead = [w.host for w in self.active if w.alive is False]
             if dead:
                 return "worker lost during load: " + ", ".join(dead)
+            retries = self._count_connect_retries(retries)
+            if retries >= self.cfg.max_connect_retries:
+                return f"root cannot reach its workers ({retries} consecutive connect retries)"
             self.publish()
             if time.time() > deadline:
                 return f"root not ready after {self.cfg.ready_timeout:.0f}s"
-            self._stop.wait(1.0)
+            self._stop.wait(min(1.0, self.cfg.interval))
         return "supervisor stopping"
+
+    def _count_connect_retries(self, retries: int) -> int:
+        """Consecutive worker-connect retries in the dllama-api log; any other output resets the count."""
+        if self._log_tail is None:
+            return retries
+        for line in self._log_tail.read_new():
+            if CONNECT_RETRY_RE.search(line):
+                retries += 1
+            elif line and not RETRY_FILLER_RE.search(line):
+                retries = 0
+        return retries
 
     def restart(self, reason: str) -> None:
         self.restarts += 1
@@ -626,15 +894,31 @@ class Supervisor:
         if not self.root_running():
             if self.proc is not None:
                 rc = self.proc.returncode
+                # a crash soon after ready is a launch failure too, else a crash loop relaunches every settle
+                crashed_early = self.ready_at is not None and now - self.ready_at < self.cfg.stable_after
+                touched = self._root_reached_workers(now)
                 self.kill_root(f"exit code {rc}")
                 self.restarts += 1
-                self.set_state(RESTARTING, f"root exited with code {rc}")
-                self.reset_workers([w for w in self.active if w.alive is not False])
-                self._next_launch_at = now + self.cfg.settle
+                delay = self.cfg.settle
+                reason = f"root exited with code {rc}; {self._exit_diagnosis(rc)}"
+                if crashed_early:
+                    delay = max(delay, self._launch_failed())
+                    reason += f" within {self.cfg.stable_after:.0f}s of ready; launch failure {self.launch_failures}"
+                    reason += f", next attempt in {delay:.0f}s"
+                self.set_state(DOWN if self.launch_failures >= 3 else RESTARTING, reason)
+                if touched:
+                    self.reset_workers([w for w in self.active if w.alive is not False])
+                self._next_launch_at = now + delay
             if now < self._next_launch_at:
                 return
             self.launch_or_stand_down("startup" if self.generation == 0 else "relaunch")
             return
+        if self.launch_failures and self.ready_at is not None and now - self.ready_at >= self.cfg.stable_after:
+            self.launch_failures = 0  # stable: the crash loop is over
+        if now - self._last_cap_check >= 60:
+            self._last_cap_check = now
+            if cap_file(self.root_log_path, self.cfg.root_log_max_bytes):
+                self.event(f"{self.root_log_path} capped at {self.cfg.root_log_max_bytes} bytes")
         dead = [w.host for w in self.active if w.alive is False]
         if dead:
             self.restart("worker lost: " + ", ".join(dead))
@@ -646,8 +930,9 @@ class Supervisor:
         if self._api_stalled(now):
             self.restart(f"root API unresponsive for {self.cfg.api_stall_timeout:.0f}s")
             return
+        self._retry_failed_resets(now)
         if self.cfg.auto_rejoin:
-            desired = self.choose(self.alive_workers())
+            desired = self.choose(self.eligible_workers())
             if desired is not None and len(desired) > len(self.active):
                 if self._grow_since is None:
                     self._grow_since = now
@@ -714,7 +999,7 @@ class Supervisor:
             if self.model_header
             else None,
             "active_workers": [w.addr for w in self.active],
-            "workers": [w.as_dict(id(w) in active_ids) for w in self.workers],
+            "workers": [w.as_dict(id(w) in active_ids, w.host in self._reset_failed) for w in self.workers],
             "root": {
                 "pid": self.proc.pid if self.proc and self.root_running() else None,
                 "api": f"http://{self.cfg.api_host}:{self.cfg.api_port}/v1",
@@ -736,8 +1021,9 @@ class Supervisor:
         }
 
     def publish(self) -> None:
-        """Refresh the cached snapshot the HTTP thread serves, and the status file."""
+        """Refresh the cached snapshot the HTTP thread serves, the status file, and the systemd watchdog."""
         self._snapshot = self.snapshot()
+        sd_notify(f"WATCHDOG=1\nSTATUS={self.state}: {self.state_reason[:120]}")
         if not self.cfg.status_file:
             return
         tmp = self.cfg.status_file + ".tmp"
@@ -763,13 +1049,14 @@ def make_handler(sup: Supervisor):
         def log_message(self, format: str, *args: object) -> None:
             pass
 
-        def _json(self, code: int, obj) -> None:
+        def _json(self, code: int, obj, cors: bool = True) -> None:
             body = json.dumps(obj).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-cache")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            if cors:  # the dashboard reads GET /status from a browser; POST is never cross-origin
+                self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(body)
 
@@ -786,11 +1073,14 @@ def make_handler(sup: Supervisor):
 
         def do_POST(self) -> None:
             path = self.path.split("?", 1)[0]
-            if path == "/restart":
-                sup.request_restart("manual restart via HTTP")
-                self._json(202, {"ok": True, "state": sup.state})
+            if not post_allowed(self.client_address[0], self.headers, os.environ.get("SUPERVISOR_TOKEN")):
+                msg = "POST needs a loopback client or Authorization: Bearer $SUPERVISOR_TOKEN"
+                self._json(403, {"error": msg}, cors=False)
+            elif path == "/restart":
+                sup.request_restart(f"manual restart via HTTP from {self.client_address[0]}")
+                self._json(202, {"ok": True, "state": sup.state}, cors=False)
             else:
-                self._json(404, {"error": "not found"})
+                self._json(404, {"error": "not found"}, cors=False)
 
     return Handler
 
@@ -864,7 +1154,25 @@ def build_parser() -> argparse.ArgumentParser:
         default=d.api_stall_timeout,
         help="restart if /v1/models has not answered for this long; 0 disables",
     )
-    ap.add_argument("--launch-backoff", type=float, default=d.launch_backoff)
+    ap.add_argument(
+        "--launch-backoff",
+        type=float,
+        default=d.launch_backoff,
+        help="base of the exponential retry delay after a failed launch (doubles per failure, capped)",
+    )
+    ap.add_argument("--max-launch-backoff", type=float, default=d.max_launch_backoff)
+    ap.add_argument(
+        "--max-connect-retries",
+        type=int,
+        default=d.max_connect_retries,
+        help="give up a launch after this many consecutive worker-connect retries in the dllama-api log",
+    )
+    ap.add_argument(
+        "--stable-after",
+        type=float,
+        default=d.stable_after,
+        help="a root crash sooner than this after ready counts as a launch failure",
+    )
     ap.add_argument(
         "--min-nodes",
         type=int,
@@ -915,6 +1223,9 @@ def config_from_args(args: argparse.Namespace) -> Config:
         api_check_interval=args.api_check_interval,
         api_stall_timeout=args.api_stall_timeout,
         launch_backoff=args.launch_backoff,
+        max_launch_backoff=args.max_launch_backoff,
+        max_connect_retries=args.max_connect_retries,
+        stable_after=args.stable_after,
         node_counts=[int(c) for c in args.node_counts.split(",") if c.strip()] or None,
         min_nodes=max(1, args.min_nodes),
     )
@@ -922,6 +1233,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    configure_logging()
     sentry_init_from_env()
     cfg = config_from_args(args)
     sup = Supervisor(cfg)
@@ -938,9 +1250,11 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 0
     srv = serve_status(sup, cfg.status_host, cfg.status_port)
+    sd_notify("READY=1")  # Type=notify: the unit is up once /status answers; WATCHDOG=1 rides on publish()
 
     def on_signal(signum, _frame) -> None:
         log(f"signal {signum}, shutting down")
+        sd_notify("STOPPING=1")
         sup.stop()
 
     signal.signal(signal.SIGTERM, on_signal)

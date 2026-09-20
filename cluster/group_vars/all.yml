@@ -1,0 +1,34 @@
+---
+# Loaded automatically next to bootstrap.yml and root-model.yml.
+
+# The worker list every rendered file on the root uses (dllama-supervisor.service,
+# dllama-root.service, ~/cluster) comes from [workers] in inventory.ini, in inventory order =
+# the supervisor's priority order (first kept when the set shrinks). Per host, cluster_ip (the
+# wired address) wins over ansible_host (how Ansible reaches it, which may be a hotspot/ProxyJump
+# door), then the inventory name.
+worker_addrs: >-
+  {%- for h in groups['workers'] -%}
+  {{ hostvars[h].cluster_ip | default(hostvars[h].ansible_host | default(h)) }}{{ '' if loop.last else ',' }}
+  {%- endfor -%}
+
+# The model the root serves: a distributed-llama launcher key (root-model.yml runs
+# `python3 launch.py <key> -skip-run -y` on the root). At the pinned commit 59af889 the launcher
+# writes models/<key>/dllama_model_<key>.m (a multi-part download is concatenated into that one
+# file) and models/<key>/dllama_tokenizer_<key>.t, so every path below derives from the key.
+# Switching models is this one line, or `-e dllama_model=qwen3_0.6b_q40` (the previous demo model).
+#
+# Whether a launch fits is NOT decided here. The supervisor reads the .m header and picks the
+# node counts the model can be sliced into; the per-node RAM (8 GB on pi-node-1 and the root,
+# 4 GB on pi-node-2 and pi-node-4) decides whether that node's share of the weights loads. A
+# root killed for memory shows up in /status and journalctl as "likely out of memory" and is
+# retried with backoff; set dllama_min_nodes to the smallest count whose per-node share fits the
+# 4 GB Pis so a shrunken set never tries to hold weights it cannot (the supervisor reports
+# `down` instead, and the router goes to the cloud).
+dllama_model: qwen3_30b_a3b_q40
+dllama_min_nodes: 1
+# launch.py at 59af889 passes this for the Qwen3 models: caps the KV cache, which otherwise
+# follows the header's seq_len. Applied to both the supervisor's dllama-api and the rollback unit.
+dllama_extra_args: "--max-seq-len 4096"
+dllama_model_dir: "/home/pi/distributed-llama/models/{{ dllama_model }}"
+dllama_model_path: "{{ dllama_model_dir }}/dllama_model_{{ dllama_model }}.m"
+dllama_tokenizer_path: "{{ dllama_model_dir }}/dllama_tokenizer_{{ dllama_model }}.t"

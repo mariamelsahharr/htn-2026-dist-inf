@@ -1,3 +1,5 @@
+# Rendered by cluster/bootstrap.yml from systemd/dllama-root.service.j2; edit the template,
+# inventory.ini or group_vars/all.yml, not this file. Rollback unit: ROOT_UNIT=dllama-root ~/cluster up
 [Unit]
 Description=distributed-llama root API
 After=network-online.target
@@ -13,10 +15,11 @@ OOMScoreAdjust=-500
 ExecStart=/home/pi/distributed-llama/dllama-api \
     --host 0.0.0.0 \
     --port 9990 \
-    --model /home/pi/distributed-llama/models/qwen3_0.6b_q40/dllama_model_qwen3_0.6b_q40.m \
-    --tokenizer /home/pi/distributed-llama/models/qwen3_0.6b_q40/dllama_tokenizer_qwen3_0.6b_q40.t \
+    --model /home/pi/distributed-llama/models/qwen3_30b_a3b_q40/dllama_model_qwen3_30b_a3b_q40.m \
+    --tokenizer /home/pi/distributed-llama/models/qwen3_30b_a3b_q40/dllama_tokenizer_qwen3_30b_a3b_q40.t \
     --buffer-float-type q80 \
     --nthreads 4 \
+    --max-seq-len 4096 \
     --workers \
 192.168.50.11:9998 \
 192.168.50.12:9998 \

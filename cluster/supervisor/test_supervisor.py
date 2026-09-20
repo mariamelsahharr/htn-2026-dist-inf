@@ -27,17 +27,21 @@ from supervisor import (
     MODEL_MAGIC,
     RESTARTING,
     Config,
+    LogTail,
     Supervisor,
     Worker,
     build_parser,
+    cap_file,
     choose_workers,
     config_from_args,
-    largest_power_of_two_at_most,
     parse_workers,
+    post_allowed,
     powers_of_two,
     read_model_header,
+    sd_notify,
     serve_status,
     valid_node_counts,
+    worker_process_present,
 )
 
 HERE = Path(__file__).resolve().parent
@@ -106,11 +110,6 @@ def write_model(path, params):
 
 
 # --------------------------------------------------------------- set selection
-
-
-@pytest.mark.parametrize("n,expected", [(1, 1), (2, 2), (3, 2), (4, 4), (5, 4), (7, 4), (8, 8), (9, 8)])
-def test_largest_power_of_two(n, expected):
-    assert largest_power_of_two_at_most(n) == expected
 
 
 def test_three_alive_workers_make_a_four_node_set():
@@ -572,3 +571,336 @@ def test_telemetry_off_leaves_nulls(tmp_path):
     sup = Supervisor(cfg, probe=lambda h: True, telemetry=lambda h: {"temp_c": 1})
     sup.probe_all()
     assert sup.workers[0].telemetry is None and sup.root_telemetry is None
+
+
+# ------------------------------------------------------ crash loop, resets, liveness (no fake root)
+
+
+class FakeProc:
+    """A Popen stand-in: alive until returncode is set."""
+
+    def __init__(self, returncode=None):
+        self.returncode = returncode
+        self.pid = 4242
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.returncode = -15
+
+    def kill(self):
+        self.returncode = -9
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+
+class Bench:
+    """A supervisor with injected process, probes and resets; nothing sleeps for long."""
+
+    def __init__(self, tmp_path, spawn=None, reset_ok=None, telemetry=None, api_ok=True, **cfg):
+        self.resets = []
+        self.procs = []
+        self.reset_ok = reset_ok or (lambda host: True)
+        self.telemetry = telemetry or (lambda host: None)
+        self.cfg = Config(
+            workers=[("w1", 9998), ("w2", 9998), ("w3", 9998)],
+            model="missing.m",
+            tokenizer="t.t",
+            log_dir=str(tmp_path / "logs"),
+            status_file=str(tmp_path / "status.json"),
+            interval=0.05,
+            settle=0.0,
+            launch_backoff=5.0,
+            fail_after=2,
+            ok_after=1,
+            **cfg,
+        )
+        self.sup = Supervisor(
+            self.cfg,
+            probe=lambda h: True,
+            spawn=spawn or self.spawn,
+            reset_worker=self.reset,
+            api_check=lambda: api_ok,
+            telemetry=self.telemetry,
+        )
+
+    def spawn(self, cmd, reason):
+        proc = FakeProc()
+        self.procs.append(proc)
+        return proc
+
+    def reset(self, host):
+        self.resets.append(host)
+        return self.reset_ok(host)
+
+    def status_file(self):
+        return json.loads(Path(self.cfg.status_file).read_text())
+
+
+def crash_at_spawn(cmd, reason):
+    return FakeProc(returncode=1)
+
+
+def test_launch_backoff_doubles_per_failure_and_caps(tmp_path):
+    b = Bench(tmp_path, spawn=crash_at_spawn, max_launch_backoff=30.0)
+    sup = b.sup
+    for failures, delay in ((1, 10.0), (2, 20.0), (3, 30.0), (4, 30.0)):
+        t0 = time.time()
+        assert sup.launch(sup.workers, "test") is False
+        assert sup.launch_failures == failures
+        assert abs(sup._next_launch_at - t0 - delay) < 0.5, f"failure {failures}: expected {delay}s backoff"
+        assert f"next attempt in {delay:.0f}s" in sup.state_reason
+    assert b.resets == [], "a root that died within quick_exit of its spawn never reached the workers: no reset"
+
+
+def test_root_killed_for_memory_is_named_in_the_reason(tmp_path):
+    b = Bench(tmp_path, spawn=lambda cmd, reason: FakeProc(returncode=-9))  # the OOM killer's SIGKILL
+    sup = b.sup
+    sup.root_log_path.write_text("=== gen=1 startup\n💡 Loading weights from part 3\n")
+    assert sup.launch(sup.workers, "test") is False
+    assert "likely out of memory" in sup.state_reason and "Loading weights from part 3" in sup.state_reason
+    assert sup.state == RESTARTING and "next attempt in" in sup.state_reason
+
+
+def test_bad_alloc_in_the_log_is_named_out_of_memory(tmp_path):
+    b = Bench(tmp_path, spawn=lambda cmd, reason: FakeProc(returncode=-6))
+    sup = b.sup
+    sup.root_log_path.write_text("terminate called after throwing an instance of 'std::bad_alloc'\n")
+    sup.launch(sup.workers, "test")
+    assert "likely out of memory" in sup.state_reason
+
+
+def test_a_plain_exit_is_not_called_out_of_memory(tmp_path):
+    b = Bench(tmp_path, spawn=crash_at_spawn)
+    sup = b.sup
+    sup.root_log_path.write_text("Unknown option --frobnicate\n")
+    sup.launch(sup.workers, "test")
+    assert "out of memory" not in sup.state_reason
+    assert "last log line: 'Unknown option --frobnicate'" in sup.state_reason
+    sup.root_log_path.unlink()
+    sup.launch(sup.workers, "test")
+    assert "no output in dllama-api.log" in sup.state_reason
+
+
+def test_three_launch_failures_report_down(tmp_path):
+    sup = Bench(tmp_path, spawn=crash_at_spawn).sup
+    sup.launch(sup.workers, "one")
+    sup.launch(sup.workers, "two")
+    assert sup.state == RESTARTING
+    sup.launch(sup.workers, "three")
+    assert sup.state == DOWN and sup.launch_failures == 3
+    assert Path(sup.cfg.status_file).exists() and json.loads(Path(sup.cfg.status_file).read_text())["state"] == DOWN
+
+
+def test_crash_soon_after_ready_counts_as_a_launch_failure(tmp_path):
+    b = Bench(tmp_path, stable_after=60.0, quick_exit=2.0)
+    sup = b.sup
+    sup.tick()
+    assert sup.state == HEALTHY and sup.launch_failures == 0
+    now = time.time()
+    sup.launched_at, sup.ready_at = now - 10, now - 5  # ran long enough to have connected the workers
+    b.procs[-1].returncode = 139
+    sup.tick()
+    assert sup.launch_failures == 1 and sup.state == RESTARTING
+    assert sup._next_launch_at - now > 9.0, "exponential backoff, not the 0 s settle"
+    assert b.resets == ["w1", "w2", "w3"], "the workers were attached to that root: reset them"
+    assert b.status_file()["state"] == RESTARTING, "kill_root/set_state publish immediately"
+    assert "within 60s of ready" in sup.state_reason
+
+    sup._next_launch_at = 0.0
+    sup.tick()  # relaunch
+    assert sup.state == HEALTHY and sup.launch_failures == 1, "a fresh ready does not forgive the crash yet"
+    sup.ready_at = time.time() - 61
+    sup.tick()
+    assert sup.launch_failures == 0, "stable for stable_after: the crash loop is over"
+
+
+def test_instant_exit_after_ready_skips_the_worker_reset(tmp_path):
+    b = Bench(tmp_path)
+    sup = b.sup
+    sup.tick()
+    assert sup.state == HEALTHY
+    b.procs[-1].returncode = 1  # launched_at is "now": the root never got to the workers
+    sup.tick()
+    assert b.resets == [] and sup.launch_failures == 1
+
+
+def test_failed_reset_benches_the_worker_after_one_retry(tmp_path):
+    b = Bench(tmp_path, reset_ok=lambda host: host != "w2")
+    sup = b.sup
+    sup.tick()
+    assert sup.state == HEALTHY and [w.host for w in sup.active] == ["w1", "w2", "w3"]
+    sup.restart("drill")
+    assert b.resets.count("w2") == 2 and b.resets.count("w1") == 1, "one retry for the failure, none for successes"
+    assert sup._reset_failed == {"w2"}
+    assert [w.host for w in sup.active] == ["w1"], "w2 is left out: 2 usable workers -> a 2-node set on w1"
+    assert sup.state == DEGRADED
+    by_host = {w["host"]: w for w in sup.snapshot()["workers"]}
+    assert by_host["w2"]["reset_failed"] is True and by_host["w1"]["reset_failed"] is False
+    assert any("reset failed twice" in e["msg"] and "w2" in e["msg"] for e in sup.events)
+
+    # while benched it must not trigger a rejoin restart loop
+    gen = sup.generation
+    for _ in range(3):
+        sup.tick()
+    assert sup.generation == gen and sup._grow_since is None
+
+    # the periodic retry succeeds: eligible again, and the set grows after the grace period
+    b.reset_ok = lambda host: True
+    sup._retry_failed_resets(time.time() + sup.cfg.reset_retry_interval + 1)
+    assert sup._reset_failed == set()
+    sup.tick()
+    assert sup._grow_since is not None
+    sup._grow_since = time.time() - sup.cfg.rejoin_grace - 1
+    sup.tick()
+    assert [w.host for w in sup.active] == ["w1", "w2", "w3"] and sup.state == HEALTHY
+
+
+def test_a_reachable_pi_without_a_worker_process_is_dead(tmp_path):
+    docs = {}
+    b = Bench(tmp_path, telemetry=lambda host: docs.get(host, {"worker_listening": True, "worker_connections": 0}))
+    sup = b.sup
+    sup.probe_all()
+    assert [w.alive for w in sup.workers] == [True, True, True]
+    docs["w2"] = {"temp_c": 50.0, "worker_listening": False, "worker_connections": 0, "worker_unit": "failed"}
+    sup.probe_all()
+    assert sup.workers[1].alive is True, "first miss: hysteresis (fail_after=2)"
+    sup.probe_all()
+    assert sup.workers[1].alive is False and sup.workers[0].alive is True
+    assert sup.workers[1].telemetry is None
+    assert any("w2 has no dllama worker process" in e["msg"] and "failed" in e["msg"] for e in sup.events)
+    docs["w2"] = {"worker_listening": False, "worker_connections": 1}  # attached to a root: alive
+    sup.probe_all()
+    assert sup.workers[1].alive is True
+
+
+def test_worker_process_present_semantics():
+    assert worker_process_present(None) is True, "no telemetry: the ping decides"
+    assert worker_process_present({"temp_c": 1}) is True, "older agent without the fields"
+    assert worker_process_present({"worker_listening": None, "worker_connections": None}) is True
+    assert worker_process_present({"worker_listening": True, "worker_connections": 0}) is True
+    assert worker_process_present({"worker_listening": False, "worker_connections": 2}) is True
+    assert worker_process_present({"worker_listening": False, "worker_connections": 0}) is False
+
+
+def test_set_state_publishes_immediately(tmp_path):
+    sup = Bench(tmp_path).sup
+    sup.set_state(DOWN, "unit test")
+    assert json.loads(Path(sup.cfg.status_file).read_text())["state"] == DOWN
+    assert sup.last_snapshot()["reason"] == "unit test"
+
+
+def test_wait_ready_gives_up_after_consecutive_connect_retries(tmp_path):
+    b = Bench(tmp_path, api_ok=False, max_connect_retries=3)
+    sup = b.sup
+    log = sup.root_log_path
+    log.write_text("=== old launch\n🚨 Connection error: Cannot connect to w2:9998\n")
+    sup.proc = FakeProc()  # ty: ignore[invalid-assignment]
+    sup._log_tail = LogTail(log)  # what launch() does right after the spawn: old lines do not count
+    with log.open("a") as fh:
+        for _ in range(3):
+            fh.write(
+                "🚨 Connection error: Cannot connect to w2:9998 (Connection refused)\n🔄 Retrying in 3 seconds...\n"
+            )
+    assert sup.wait_ready() == "root cannot reach its workers (3 consecutive connect retries)"
+
+
+def test_connect_retry_count_resets_on_other_output(tmp_path):
+    sup = Bench(tmp_path).sup
+    log = sup.root_log_path
+    log.write_text("")
+    sup._log_tail = LogTail(log)
+    with log.open("a") as fh:
+        fh.write("🚨 Connection error: Cannot connect to w2:9998\n🔄 Retrying in 3 seconds...\n")
+        fh.write("🚨 Connection error: Cannot connect to w2:9998\n")
+    assert sup._count_connect_retries(0) == 2
+    with log.open("a") as fh:
+        fh.write("🔄 Retrying in 3 seconds...\n💡 Loaded 1024 kB\n🚨 Connection error: x\npartial line without newline")
+    assert sup._count_connect_retries(2) == 1, "a real log line resets the run; the partial line waits"
+
+
+def test_log_tail_survives_truncation(tmp_path):
+    p = tmp_path / "log"
+    p.write_text("a\nb\n")
+    tail = LogTail(p)
+    assert tail.read_new() == []
+    p.write_text("a\nb\nc\n")
+    assert tail.read_new() == ["c"]
+    p.write_text("x\n")
+    assert tail.read_new() == ["x"], "shorter file = truncated: start over"
+    p.unlink()
+    assert tail.read_new() == []
+
+
+def test_cap_file_keeps_the_newest_half(tmp_path):
+    p = tmp_path / "dllama-api.log"
+    p.write_bytes(b"".join(f"line {i:05d}\n".encode() for i in range(1000)))
+    assert cap_file(p, 100_000) is False
+    assert cap_file(p, 2_000) is True
+    text = p.read_text()
+    assert text.startswith("=== ") and "capped at 2000 bytes" in text
+    assert "line 00999" in text and "line 00010" not in text and len(text) < 2_200
+    with p.open("ab") as fh:  # the child's O_APPEND handle keeps appending after the cap
+        fh.write(b"after\n")
+    assert p.read_text().endswith("line 00999\nafter\n")
+    assert cap_file(tmp_path / "missing", 10) is False
+
+
+def test_events_file_rotates_by_size(tmp_path):
+    sup = Bench(tmp_path, events_max_bytes=2_000).sup
+    for i in range(200):
+        sup.event(f"event number {i} with some padding to fill the file quickly")
+    logs = tmp_path / "logs"
+    assert (logs / "supervisor-events.jsonl").exists() and (logs / "supervisor-events.jsonl.1").exists()
+    assert not (logs / "supervisor-events.jsonl.3").exists()
+    line = (logs / "supervisor-events.jsonl.1").read_text().splitlines()[0]
+    assert set(json.loads(line)) == {"t", "msg"}
+
+
+def test_sd_notify_is_a_noop_without_systemd(monkeypatch):
+    monkeypatch.delenv("NOTIFY_SOCKET", raising=False)
+    assert sd_notify("READY=1") is False
+    monkeypatch.setenv("NOTIFY_SOCKET", "/nonexistent/notify")
+    assert sd_notify("READY=1") is False
+
+
+def test_sd_notify_sends_a_datagram_to_notify_socket(monkeypatch):
+    import socket
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        path = str(Path(d) / "notify")
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        srv.bind(path)
+        srv.settimeout(2)
+        monkeypatch.setenv("NOTIFY_SOCKET", path)
+        assert sd_notify("READY=1") is True
+        assert srv.recv(64) == b"READY=1"
+        srv.close()
+
+
+def test_post_restart_needs_loopback_or_token():
+    assert post_allowed("127.0.0.1", {}, None) is True
+    assert post_allowed("::1", {}, None) is True
+    assert post_allowed("192.168.50.20", {}, None) is False, "no token configured: remote POST is refused"
+    assert post_allowed("192.168.50.20", {"Authorization": "Bearer s3cret"}, "s3cret") is True
+    assert post_allowed("192.168.50.20", {"X-Supervisor-Token": "s3cret"}, "s3cret") is True
+    assert post_allowed("192.168.50.20", {"Authorization": "Bearer wrong"}, "s3cret") is False
+    assert post_allowed("192.168.50.20", {"Authorization": "Bearer "}, "s3cret") is False
+
+
+def test_post_responses_carry_no_cors_header(lab):
+    sup = lab.sup
+    assert wait_for(lambda: sup.state == HEALTHY)
+    srv = serve_status(sup, "127.0.0.1", 0)
+    try:
+        port = srv.server_address[1]
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/status", timeout=2) as r:
+            assert r.headers.get("Access-Control-Allow-Origin") == "*"
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/restart", method="POST")
+        with urllib.request.urlopen(req, timeout=2) as r:
+            assert r.status == 202 and r.headers.get("Access-Control-Allow-Origin") is None
+    finally:
+        srv.shutdown()

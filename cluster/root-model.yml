@@ -1,11 +1,14 @@
 ---
-- name: Download test model on root
+# Downloads `dllama_model` (group_vars/all.yml; -e dllama_model=qwen3_0.6b_q40 for the small one)
+# on the root with the distributed-llama launcher, which writes
+# models/<key>/dllama_model_<key>.m and dllama_tokenizer_<key>.t at the pinned commit.
+- name: Download the model on root
   hosts: root
 
   tasks:
-    - name: Download Qwen3 0.6B Q40
+    - name: "Download {{ dllama_model }} with launch.py"
       command:
-        cmd: python3 launch.py qwen3_0.6b_q40 -skip-run -y
+        cmd: "python3 launch.py {{ dllama_model }} -skip-run -y"
         chdir: /home/pi/distributed-llama
       args:
-        creates: /home/pi/distributed-llama/models/qwen3_0.6b_q40/dllama_model_qwen3_0.6b_q40.m
+        creates: "{{ dllama_model_path }}"

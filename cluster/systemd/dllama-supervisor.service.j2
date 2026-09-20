@@ -1,3 +1,10 @@
+{% set worker_addrs = worker_addrs | default('192.168.50.11,192.168.50.12,192.168.50.14') %}
+{% set dllama_model = dllama_model | default('qwen3_30b_a3b_q40') %}
+{% set dllama_model_dir = dllama_model_dir | default('/home/pi/distributed-llama/models/' ~ dllama_model) %}
+{% set dllama_model_path = dllama_model_path | default(dllama_model_dir ~ '/dllama_model_' ~ dllama_model ~ '.m') %}
+{% set dllama_tokenizer_path = dllama_tokenizer_path | default(dllama_model_dir ~ '/dllama_tokenizer_' ~ dllama_model ~ '.t') %}
+{% set dllama_min_nodes = dllama_min_nodes | default(1) %}
+{% set dllama_extra_args = dllama_extra_args | default('--max-seq-len 4096') %}
 # Rendered by cluster/bootstrap.yml from systemd/dllama-supervisor.service.j2; edit the template,
 # inventory.ini or group_vars/all.yml, not this file. Workers are [workers] in inventory order =
 # the supervisor's priority order; the model paths follow dllama_model (a launcher key).
@@ -26,13 +33,13 @@ OOMScoreAdjust=-500
 # Wired worker IPs (see dllama-root.service), best-cooled / biggest-RAM first. Whether the model
 # fits is decided by the supervisor's header math and each Pi's RAM; --min-nodes is the RAM floor.
 ExecStart=/usr/bin/python3 /home/pi/supervisor.py \
-    --workers 192.168.50.11,192.168.50.12,192.168.50.14 \
+    --workers {{ worker_addrs }} \
     --dllama-bin /home/pi/distributed-llama/dllama-api \
-    --model /home/pi/distributed-llama/models/qwen3_30b_a3b_q40/dllama_model_qwen3_30b_a3b_q40.m \
-    --tokenizer /home/pi/distributed-llama/models/qwen3_30b_a3b_q40/dllama_tokenizer_qwen3_30b_a3b_q40.t \
+    --model {{ dllama_model_path }} \
+    --tokenizer {{ dllama_tokenizer_path }} \
     --nthreads 4 \
-    --min-nodes 1 \
-    --extra-args "--max-seq-len 4096" \
+    --min-nodes {{ dllama_min_nodes }} \
+    --extra-args "{{ dllama_extra_args }}" \
     --api-port 9990 \
     --status-port 9991 \
     --log-dir /home/pi/logs

@@ -1,0 +1,2 @@
+# secrets that bootstrap.yml copies to the root when present; see supervisor.env.example
+supervisor.env

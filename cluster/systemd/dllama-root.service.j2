@@ -1,0 +1,41 @@
+{% set worker_addrs = worker_addrs | default('192.168.50.11,192.168.50.12,192.168.50.14') %}
+{% set dllama_model = dllama_model | default('qwen3_30b_a3b_q40') %}
+{% set dllama_model_dir = dllama_model_dir | default('/home/pi/distributed-llama/models/' ~ dllama_model) %}
+{% set dllama_model_path = dllama_model_path | default(dllama_model_dir ~ '/dllama_model_' ~ dllama_model ~ '.m') %}
+{% set dllama_tokenizer_path = dllama_tokenizer_path | default(dllama_model_dir ~ '/dllama_tokenizer_' ~ dllama_model ~ '.t') %}
+{% set dllama_extra_args = dllama_extra_args | default('--max-seq-len 4096') %}
+# Rendered by cluster/bootstrap.yml from systemd/dllama-root.service.j2; edit the template,
+# inventory.ini or group_vars/all.yml, not this file. Rollback unit: ROOT_UNIT=dllama-root ~/cluster up
+[Unit]
+Description=distributed-llama root API
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/distributed-llama
+Nice=-20
+OOMScoreAdjust=-500
+ExecStart=/home/pi/distributed-llama/dllama-api \
+    --host 0.0.0.0 \
+    --port 9990 \
+    --model {{ dllama_model_path }} \
+    --tokenizer {{ dllama_tokenizer_path }} \
+    --buffer-float-type q80 \
+    --nthreads 4 \
+{% if dllama_extra_args %}
+    {{ dllama_extra_args }} \
+{% endif %}
+    --workers \
+{% for addr in worker_addrs.split(',') %}
+{{ addr }}:9998{{ ' \\' if not loop.last else '' }}
+{% endfor %}
+
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

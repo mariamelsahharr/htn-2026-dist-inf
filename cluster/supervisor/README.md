@@ -52,7 +52,8 @@ GET http://<root>:9991/status
 }
 GET  /healthz    200 while healthy or degraded, 503 otherwise
 GET  /events     recent events
-POST /restart    force a relaunch (demo control)
+POST /restart    force a relaunch (demo control); from the root itself, or with
+                 "Authorization: Bearer $SUPERVISOR_TOKEN" from anywhere else (403 otherwise)
 ```
 
 `status.example.json` next to this file is the full document. The supervisor,
@@ -76,10 +77,38 @@ cd cluster && ansible-playbook -i inventory.ini bootstrap.yml -u pi
 ssh pi@<root> journalctl -u dllama-supervisor -f
 ```
 
-Edit `--workers` in `systemd/dllama-supervisor.service` first: comma-separated
-hosts in **priority order**. When the set shrinks the first ones are kept, so list
-the 8 GB, best-cooled nodes first. `ping` to each worker must work from the root;
-the wired IPs are safer than mDNS names.
+`--workers` is not hand-edited: `bootstrap.yml` renders
+`systemd/dllama-supervisor.service.j2` (and `dllama-root.service.j2`, `cluster.j2`)
+from `[workers]` in `inventory.ini`, in inventory order = **priority order**. When the
+set shrinks the first ones are kept, so list the 8 GB, best-cooled nodes first. The
+checked-in `.service` files are the render for the current three workers, for
+reference. `ping` to each worker must work from the root; the wired IPs are what the
+inventory carries (`cluster_ip=` when Ansible reaches a node through another address).
+
+The unit is `Type=notify` with `WatchdogSec=60`: the supervisor sends `READY=1` once
+`/status` answers and `WATCHDOG=1` with every publish, so a supervisor that wedges is
+restarted by systemd. `EnvironmentFile=-/home/pi/supervisor.env` carries `SENTRY_DSN`,
+`SENTRY_ENVIRONMENT` and `SUPERVISOR_TOKEN` (`cluster/supervisor.env.example`).
+
+## Liveness: a dead process on a live Pi
+
+Ping only proves the Pi is up. The node agent reports `worker_listening` and
+`worker_connections` from `/proc/net/tcp` (port 9998 in LISTEN, or the root's
+ESTABLISHED connection on it: the worker closes its listen socket once the root
+connects) plus `worker_unit` from `systemctl is-active`. A worker is alive when it
+answers ping **and** has a dllama socket; without telemetry the ping decides. During
+a launch the supervisor also tails `dllama-api.log`: ten consecutive
+`Connection error ... Retrying in 3 seconds` lines abandon that launch instead of
+waiting out `--ready-timeout`.
+
+## Crash loops and resets
+
+A failed launch, or a root that dies within `--stable-after` (60 s) of becoming ready,
+counts as a launch failure; the retry waits `min(300, launch_backoff * 2**failures)`
+and the third failure reports `down` while it keeps trying. A root that died within 2 s
+of its spawn never reached the workers, so they are not reset. A worker whose SSH
+reset fails twice is benched (`workers[].reset_failed`) and left out of the set until a
+later reset succeeds (retried every 60 s) or it reboots.
 
 Rollback to the plain root is one command: `ROOT_UNIT=dllama-root ~/cluster up`
 (after `~/cluster down`). The old unit stays installed, just disabled.
@@ -88,7 +117,7 @@ Rollback to the plain root is one command: `ROOT_UNIT=dllama-root ~/cluster up`
 
 ```bash
 cd cluster/supervisor
-python3 -m pytest -q             # 27 tests, ~15 s, covers the whole ladder
+python3 -m pytest -q             # ~60 tests, ~20 s, covers the whole ladder
 ```
 
 Or drive it by hand with the fake root:
@@ -112,8 +141,11 @@ echo w3 > /tmp/dead          # "pull the cable": watch it go restarting -> degra
 | `--fail-after` / `--ok-after` | 2 / 2 | consecutive misses / hits before a worker flips dead / alive |
 | `--rejoin-grace` | 10 s | how long a returned worker must stay up before the set grows |
 | `--settle` | 3 s | pause between killing the root and relaunching |
-| `--ready-timeout` | 600 s | how long a launch may take before it is declared failed |
-| `--api-stall-timeout` | 180 s | restart if `/v1/models` has not answered this long (0 = off) |
+| `--ready-timeout` | 600 s | how long a launch may take before it is declared failed (backstop) |
+| `--max-connect-retries` | 10 | consecutive worker-connect retries in `dllama-api.log` that fail a launch |
+| `--launch-backoff` / `--max-launch-backoff` | 5 s / 300 s | exponential retry delay after failed launches |
+| `--stable-after` | 60 s | a crash sooner than this after ready counts as a launch failure |
+| `--api-stall-timeout` | 0 (off) | restart if `/v1/models` has not answered this long |
 | `--no-reset-workers` | | skip the SSH restart of survivors (only for the laptop fake) |
 
 Recovery time = detection (`fail-after × interval`, ~4 s) + kill + reset (~2 s) +

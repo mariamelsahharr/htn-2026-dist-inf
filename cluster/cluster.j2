@@ -1,12 +1,13 @@
+{% set worker_addrs = worker_addrs | default('192.168.50.11,192.168.50.12,192.168.50.14') %}
 #!/usr/bin/env bash
 # Rendered by cluster/bootstrap.yml from cluster/cluster.j2; edit the template or inventory.ini, not this file.
 set -euo pipefail
 
 # Wired worker addresses, [workers] inventory order (the supervisor's priority order).
 WORKERS=(
-  "192.168.50.11"
-  "192.168.50.12"
-  "192.168.50.14"
+{% for addr in worker_addrs.split(',') %}
+  "{{ addr }}"
+{% endfor %}
 )
 # A dead worker must not hang the wrapper: no password prompts, 5 s to connect.
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new)

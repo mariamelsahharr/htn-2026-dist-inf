@@ -32,6 +32,7 @@
       "port": 9998,
       "alive": true,
       "in_set": true,
+      "reset_failed": false,
       "consecutive_fails": 0,
       "last_seen": 1789840042.0,
       "last_probe": 1789840042.0,
@@ -43,6 +44,15 @@
         "mem_total_mb": 8047,
         "load1": 3.9,
         "cpu_mhz": 2400,
+        "cpu_percent": 71.5,
+        "dllama_rss_mb": 412,
+        "net_io": {
+          "rx_bytes": 8123456789,
+          "tx_bytes": 7912345678
+        },
+        "worker_listening": false,
+        "worker_connections": 1,
+        "worker_unit": "active",
         "uptime_s": 8812,
         "ts": 1789840042.0
       }
@@ -52,6 +62,7 @@
       "port": 9998,
       "alive": true,
       "in_set": false,
+      "reset_failed": true,
       "consecutive_fails": 0,
       "last_seen": 1789840042.0,
       "last_probe": 1789840042.0,
@@ -61,8 +72,17 @@
         "flags": [],
         "mem_available_mb": 3120,
         "mem_total_mb": 8047,
-        "load1": 3.9,
+        "load1": 0.4,
         "cpu_mhz": 2400,
+        "cpu_percent": 2.0,
+        "dllama_rss_mb": 38,
+        "net_io": {
+          "rx_bytes": 123456789,
+          "tx_bytes": 98765432
+        },
+        "worker_listening": true,
+        "worker_connections": 0,
+        "worker_unit": "active",
         "uptime_s": 8812,
         "ts": 1789840042.0
       }
@@ -72,6 +92,7 @@
       "port": 9998,
       "alive": false,
       "in_set": false,
+      "reset_failed": false,
       "consecutive_fails": 21,
       "last_seen": 1789839990.0,
       "last_probe": 1789840042.0,
@@ -98,6 +119,15 @@
       "mem_total_mb": 8047,
       "load1": 3.9,
       "cpu_mhz": 2400,
+      "cpu_percent": 64.0,
+      "dllama_rss_mb": 1810,
+      "net_io": {
+        "rx_bytes": 15123456789,
+        "tx_bytes": 16012345678
+      },
+      "worker_listening": false,
+      "worker_connections": 0,
+      "worker_unit": "inactive",
       "uptime_s": 8812,
       "ts": 1789840042.0
     }

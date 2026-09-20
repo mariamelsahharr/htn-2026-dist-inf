@@ -4,6 +4,27 @@
 #   cp inventory.example.ini inventory.ini        # edit hosts / IPs
 #   ansible-playbook -i inventory.ini bootstrap.yml -u pi
 #   ansible-playbook -i inventory.ini root-model.yml -u pi
+#
+# Adding nodes (pi-node-6..9 for an 8-node cluster): add each one to [cluster] with its
+# ansible_host and to [workers] in inventory.ini, then rerun this playbook. Nothing else
+# changes: the worker list in dllama-supervisor.service, dllama-root.service and ~/cluster on
+# the root is rendered from [workers] (group_vars/all.yml -> worker_addrs) in inventory order,
+# and that order is the supervisor's priority order (first ones are kept when the set shrinks),
+# so list the best-cooled / biggest-RAM Pis first. If Ansible reaches a worker through an
+# address other than its wired cluster address (hotspot door, ProxyJump), put
+# cluster_ip=<wired ip> on its inventory line; it defaults to ansible_host.
+# distributed-llama takes 1, 2, 4, 8... nodes (supervisor/README.md): with 7 workers the
+# supervisor runs 8 and drops to 4 when one dies. pi-node-5 hosts the router and stays out of
+# every group here.
+#
+# Model: `dllama_model` in group_vars/all.yml (a launcher key, currently qwen3_30b_a3b_q40) is
+# the single source for --model / --tokenizer in both root units and for root-model.yml.
+# Override per run with -e dllama_model=qwen3_0.6b_q40. Whether it fits is decided by the
+# supervisor's header math and the Pis' RAM, not here (see the comment in group_vars/all.yml).
+#
+# Handlers restart a unit only when its file or program changed; a plain rerun is a no-op.
+# Moving the distributed-llama pin: bump `version` below and run with -e dllama_update=true
+# (the Pis need a route to GitHub for that); the binaries are rebuilt when the checkout moved.
 
 - name: Build distributed-llama on every node
   hosts: cluster
@@ -21,6 +42,8 @@
           - git
           - build-essential
           - python3
+          - python3-psutil       # node_agent.py: cpu / rss / net counters (stdlib fallback without it)
+          - python3-sentry-sdk   # supervisor.py: optional, active only with SENTRY_DSN in supervisor.env
           - netcat-openbsd
           - iperf3
         state: present
@@ -31,9 +54,20 @@
         dest: /home/pi/distributed-llama
         version: 59af889  # the commit the supervisor and router were tested against; bump on purpose
         # no fetch on a node that already has the checkout: the Pis often have no route to
-        # GitHub (hotspot without upstream). To move the pin, run once with `update: yes`.
-        update: no
+        # GitHub (hotspot without upstream). To move the pin, run with -e dllama_update=true.
+        update: "{{ dllama_update | default(false) | bool }}"
       become_user: pi
+      register: dllama_src
+
+    # `creates:` below would otherwise keep the old binaries after the checkout moved.
+    - name: Drop the binaries when the checkout changed
+      file:
+        path: "/home/pi/distributed-llama/{{ item }}"
+        state: absent
+      loop:
+        - dllama
+        - dllama-api
+      when: dllama_src.changed
 
     # A bare `make` runs the Makefile's first target, which is `clean`. Plain
     # command tasks keep this on ansible-core only (the make module needs a collection).
@@ -51,24 +85,33 @@
         creates: /home/pi/distributed-llama/dllama-api
       become_user: pi
 
-    - name: Install the telemetry agent (temperature, throttling, memory on :9997)
+    - name: Install the telemetry agent (temperature, throttling, memory, worker socket on :9997)
       copy:
         src: agent/node_agent.py
         dest: /home/pi/node_agent.py
         owner: pi
         group: pi
         mode: "0755"
+      notify: restart agent
 
     - name: Install the agent unit
       copy:
         src: systemd/dllama-agent.service
         dest: /etc/systemd/system/dllama-agent.service
         mode: "0644"
+      notify: restart agent
 
     - name: Enable and start the agent
       systemd:
         name: dllama-agent
         enabled: yes
+        state: started
+        daemon_reload: yes
+
+  handlers:
+    - name: restart agent
+      systemd:
+        name: dllama-agent
         state: restarted
         daemon_reload: yes
 
@@ -76,6 +119,14 @@
 - name: Root SSH key (the supervisor restarts workers over SSH)
   hosts: root
   tasks:
+    - name: Make sure pi has a ~/.ssh (a fresh image has none until the first ssh-keygen)
+      file:
+        path: /home/pi/.ssh
+        state: directory
+        owner: pi
+        group: pi
+        mode: "0700"
+
     - name: Generate an ed25519 key for pi on the root
       command: ssh-keygen -q -t ed25519 -N "" -f /home/pi/.ssh/id_ed25519
       args:
@@ -108,7 +159,7 @@
         src: systemd/dllama-worker.service
         dest: /etc/systemd/system/dllama-worker.service
         mode: "0644"
-      notify: reload systemd
+      notify: restart worker   # a changed unit only takes effect on restart; the supervisor folds the worker back in
 
     - name: Enable and start the worker
       systemd:
@@ -118,8 +169,10 @@
         daemon_reload: yes
 
   handlers:
-    - name: reload systemd
+    - name: restart worker
       systemd:
+        name: dllama-worker
+        state: restarted
         daemon_reload: yes
 
 
@@ -128,26 +181,41 @@
   become: true
 
   tasks:
-    - name: Install the supervisor and the cluster wrapper
+    - name: Install the supervisor
       copy:
-        src: "{{ item.src }}"
-        dest: "{{ item.dest }}"
+        src: supervisor/supervisor.py
+        dest: /home/pi/supervisor.py
         owner: pi
         group: pi
         mode: "0755"
-      loop:
-        - { src: supervisor/supervisor.py, dest: /home/pi/supervisor.py }
-        - { src: cluster, dest: /home/pi/cluster }
       notify: restart supervisor   # a new supervisor.py only takes effect on restart (15 s cluster outage)
 
-    - name: Install the root units (dllama-root stays as the rollback, disabled)
-      copy:
-        src: "systemd/{{ item }}"
+    - name: Render the cluster wrapper with the worker list from the inventory
+      template:
+        src: cluster.j2
+        dest: /home/pi/cluster
+        owner: pi
+        group: pi
+        mode: "0755"
+
+    - name: Render the root units (dllama-root stays as the rollback, disabled)
+      template:
+        src: "systemd/{{ item }}.j2"
         dest: "/etc/systemd/system/{{ item }}"
         mode: "0644"
       loop:
         - dllama-root.service
         - dllama-supervisor.service
+      notify: restart supervisor
+
+    - name: Install the supervisor environment (SENTRY_DSN, SUPERVISOR_TOKEN) when cluster/supervisor.env exists
+      copy:
+        src: supervisor.env
+        dest: /home/pi/supervisor.env
+        owner: pi
+        group: pi
+        mode: "0600"
+      when: (playbook_dir ~ '/supervisor.env') is file
       notify: restart supervisor
 
     - name: Disable the plain root unit
