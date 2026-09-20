@@ -9,8 +9,8 @@ dependencies = [
     "httpx2[http2]>=2.0",
     "pydantic-settings>=2.0",
     "solders>=0.29",
-    "borsh-construct>=0.1",
     "sentry-sdk>=2.35",
+    "solana>=0.40",
 ]
 
 [dependency-groups]

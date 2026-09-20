@@ -23,7 +23,7 @@ PROGRAM = Pubkey.new_unique()
 
 
 def ix(name, **fields):
-    return attest.ClusterInstruction.build(getattr(attest.ClusterInstruction.enum, name)(**fields))
+    return attest.instruction(name, **fields)
 
 
 def test_instruction_encoding_matches_rust_layout():
@@ -256,20 +256,3 @@ def test_run_stops_on_event():
     a.stop.set()
     t.join(2)
     assert not t.is_alive()
-
-
-def test_rpc_backs_off_on_429(monkeypatch):
-    import httpx2
-
-    calls, sleeps = [], []
-    monkeypatch.setattr(attest.time, "sleep", sleeps.append)
-
-    def handler(request):
-        calls.append(1)
-        if len(calls) < 3:
-            return httpx2.Response(429, headers={"retry-after": "0.1"})
-        return httpx2.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {"value": 7}})
-
-    chain = attest.Chain("http://rpc", Keypair(), PROGRAM, httpx2.Client(transport=httpx2.MockTransport(handler)))
-    assert chain.rpc("getBalance", "x") == {"value": 7}
-    assert len(calls) == 3 and sleeps == [0.1, 0.1]

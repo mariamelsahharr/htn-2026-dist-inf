@@ -103,11 +103,7 @@ def test_events_land_on_chain_and_rules_hold(chain, tmp_path):
     # the program refuses a second commit of the same job and an unknown host
     with pytest.raises(attest.ChainError):
         chain.send(
-            attest.ClusterInstruction.build(
-                attest.ClusterInstruction.enum.CommitJob(
-                    job_id=bytes.fromhex(rid1), served_by="cluster", result_hash=bytes(32)
-                )
-            ),
+            attest.instruction("CommitJob", job_id=bytes.fromhex(rid1), served_by="cluster", result_hash=bytes(32)),
             [
                 *att._authority_accounts(True),
                 attest.AccountMeta(attest.job_pda(chain.program_id, att.cluster, bytes.fromhex(rid1)), False, True),
@@ -115,10 +111,7 @@ def test_events_land_on_chain_and_rules_hold(chain, tmp_path):
             ],
         )
     with pytest.raises(attest.ChainError, match=r"Custom.*1"):
-        chain.send(
-            attest.ClusterInstruction.build(attest.ClusterInstruction.enum.SetWorkerSet(state=1, active=["10.9.9.9"])),
-            att._authority_accounts(False),
-        )
+        chain.send(attest.instruction("SetWorkerSet", state=1, active=["10.9.9.9"]), att._authority_accounts(False))
     # ... and a stranger cannot touch the cluster account at all
     stranger = attest.Chain(RPC, Keypair(), chain.program_id)
     stranger.airdrop(1)
@@ -128,7 +121,7 @@ def test_events_land_on_chain_and_rules_hold(chain, tmp_path):
         time.sleep(1)
     with pytest.raises(attest.ChainError, match=r"Custom.*0"):
         stranger.send(
-            attest.ClusterInstruction.build(attest.ClusterInstruction.enum.SetWorkerSet(state=0, active=[])),
+            attest.instruction("SetWorkerSet", state=0, active=[]),
             [attest.AccountMeta(stranger.payer.pubkey(), True, False), attest.AccountMeta(att.cluster, False, True)],
         )
 

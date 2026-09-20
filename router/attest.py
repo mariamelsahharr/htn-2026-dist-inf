@@ -12,7 +12,7 @@ Explorer links. Standalone, for debugging or a second box:
 """
 
 import argparse
-import base64
+import asyncio
 import hashlib
 import json
 import os
@@ -21,14 +21,17 @@ import sys
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
 import httpx2
-from borsh_construct import U8, U64, Bool, CStruct, Enum, String, Vec
-from solders.hash import Hash
+from construct import Bytes, Flag, Int8ul, Int32ul, Int64ul, PascalString, PrefixedArray, Struct, Switch, this
+from solana.exceptions import SolanaRpcException
+from solana.rpc.async_api import AsyncClient
+from solana.rpc.commitment import Confirmed
+from solana.rpc.models import TxOpts
 from solders.instruction import AccountMeta, Instruction
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
@@ -42,38 +45,52 @@ HERE = Path(__file__).resolve().parent
 PROGRAM_KEYPAIR = HERE.parent / "solana" / "program" / "target" / "deploy" / "cluster_attest-keypair.json"
 
 # ----- wire format: the borsh layouts declared in solana/program/src/lib.rs ----------
+# borsh is little-endian; strings and vectors carry a u32 length; an enum is a u8 tag.
 
-ClusterInstruction: Any = Enum(  # borsh_construct's Enum builds an untyped construct
-    "Initialize" / CStruct("model_hash" / U8[32]),
-    "RegisterNode" / CStruct("host" / String),
-    "SetWorkerSet" / CStruct("state" / U8, "active" / Vec(String)),
-    "CommitJob" / CStruct("job_id" / U8[16], "served_by" / String, "result_hash" / U8[32]),
-    enum_name="ClusterInstruction",
+BorshString = PascalString(Int32ul, "utf8")
+INSTRUCTION_TAGS = {"Initialize": 0, "RegisterNode": 1, "SetWorkerSet": 2, "CommitJob": 3}
+ClusterInstruction = Struct(
+    "tag" / Int8ul,
+    "body"
+    / Switch(
+        this.tag,
+        {
+            0: Struct("model_hash" / Bytes(32)),
+            1: Struct("host" / BorshString),
+            2: Struct("state" / Int8ul, "active" / PrefixedArray(Int32ul, BorshString)),
+            3: Struct("job_id" / Bytes(16), "served_by" / BorshString, "result_hash" / Bytes(32)),
+        },
+    ),
 )
-Node = CStruct("host" / String, "active" / Bool)
-Cluster = CStruct(
-    "authority" / U8[32],
-    "model_hash" / U8[32],
-    "epoch" / U64,
-    "state" / U8,
-    "nodes" / Vec(Node),
-    "jobs_total" / U64,
-    "jobs_local" / U64,
-    "last_job" / U8[16],
+Node = Struct("host" / BorshString, "active" / Flag)
+Cluster = Struct(
+    "authority" / Bytes(32),
+    "model_hash" / Bytes(32),
+    "epoch" / Int64ul,
+    "state" / Int8ul,
+    "nodes" / PrefixedArray(Int32ul, Node),
+    "jobs_total" / Int64ul,
+    "jobs_local" / Int64ul,
+    "last_job" / Bytes(16),
 )
+
+
+def instruction(kind: str, **fields: Any) -> bytes:
+    """Instruction data for the program: instruction("SetWorkerSet", state=2, active=["a"])."""
+    return ClusterInstruction.build({"tag": INSTRUCTION_TAGS[kind], "body": fields})
 
 
 def decode_cluster(data: bytes) -> dict[str, Any]:
     c = Cluster.parse(data)
     return {
-        "authority": str(Pubkey.from_bytes(bytes(c.authority))),
-        "model_hash": bytes(c.model_hash).hex(),
+        "authority": str(Pubkey.from_bytes(c.authority)),
+        "model_hash": c.model_hash.hex(),
         "epoch": c.epoch,
         "state": STATE_NAMES.get(c.state, c.state),
         "nodes": [{"host": n.host, "active": n.active} for n in c.nodes],
         "jobs_total": c.jobs_total,
         "jobs_local": c.jobs_local,
-        "last_job": bytes(c.last_job).hex(),
+        "last_job": c.last_job.hex(),
     }
 
 
@@ -197,57 +214,65 @@ class ChainLike(Protocol):
 
 
 class Chain:
-    def __init__(self, rpc_url: str, payer: Keypair, program_id: Pubkey, http: httpx2.Client | None = None):
-        self.rpc_url, self.payer, self.program_id = rpc_url, payer, program_id
-        self.http = http or httpx2.Client(timeout=20.0)
-        self._id = 0
+    """solana-py's AsyncClient behind a synchronous face, because the attestor runs on a
+    plain thread. One private event loop, one client, a request-rate cap for the public
+    Devnet endpoint."""
 
-    def rpc(self, method: str, *params: Any) -> Any:
-        """One JSON-RPC call. The public Devnet endpoint answers 429 under load; back off and retry."""
-        self._id += 1
-        for attempt in range(6):
-            r = self.http.post(
-                self.rpc_url, json={"jsonrpc": "2.0", "id": self._id, "method": method, "params": list(params)}
+    def __init__(self, rpc_url: str, payer: Keypair, program_id: Pubkey, rate_limit: float = 4.0) -> None:
+        self.rpc_url, self.payer, self.program_id = rpc_url, payer, program_id
+        self.rate_limit = rate_limit
+        self._loop = asyncio.new_event_loop()
+        self._client: AsyncClient | None = None
+
+    async def _connected(self) -> AsyncClient:
+        if self._client is None:
+            self._client = AsyncClient(
+                self.rpc_url, commitment=Confirmed, rate_limit=self.rate_limit, max_transport_retries=3, timeout=20.0
             )
-            if r.status_code == 429 and attempt < 5:
-                time.sleep(float(r.headers.get("retry-after") or 2**attempt))
-                continue
-            r.raise_for_status()
-            body = r.json()
-            if "error" in body:
-                raise ChainError(f"{method}: {body['error']}")
-            return body["result"]
-        raise ChainError(f"{method}: rate limited")  # pragma: no cover - loop always returns or raises
+        return self._client
+
+    def _run(self, coro: Coroutine[Any, Any, Any]) -> Any:
+        try:
+            return self._loop.run_until_complete(coro)
+        except SolanaRpcException as e:
+            raise ChainError(str(e)) from e
+        except TimeoutError as e:
+            raise ChainError("transaction not confirmed in time") from e
 
     def account_data(self, pubkey: Pubkey) -> bytes | None:
-        value = self.rpc("getAccountInfo", str(pubkey), {"encoding": "base64", "commitment": "confirmed"})["value"]
-        return base64.b64decode(value["data"][0]) if value else None
+        async def go() -> bytes | None:
+            resp = await (await self._connected()).get_account_info(pubkey, encoding="base64")
+            return bytes(resp.value.data) if resp.value else None
+
+        return self._run(go())
 
     def send(self, data: bytes, accounts: list[AccountMeta], timeout: float = 60.0) -> str:
-        ix = Instruction(self.program_id, data, accounts)
-        blockhash = Hash.from_string(self.rpc("getLatestBlockhash", {"commitment": "confirmed"})["value"]["blockhash"])
-        tx = Transaction.new_signed_with_payer([ix], self.payer.pubkey(), [self.payer], blockhash)
-        sig = self.rpc(
-            "sendTransaction",
-            base64.b64encode(bytes(tx)).decode(),
-            {"encoding": "base64", "preflightCommitment": "confirmed"},
-        )
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            status = self.rpc("getSignatureStatuses", [sig])["value"][0]
-            if status:
-                if status.get("err"):
-                    raise ChainError(f"transaction failed: {status['err']}")
-                if status.get("confirmationStatus") in ("confirmed", "finalized"):
-                    return sig
-            time.sleep(1.0)
-        raise ChainError(f"transaction {sig} not confirmed in {timeout}s")
+        async def go() -> str:
+            client = await self._connected()
+            blockhash = (await client.get_latest_blockhash()).value.blockhash
+            ix = Instruction(self.program_id, data, accounts)
+            tx = Transaction.new_signed_with_payer([ix], self.payer.pubkey(), [self.payer], blockhash)
+            sig = (await client.send_raw_transaction(bytes(tx), opts=TxOpts(preflight_commitment=Confirmed))).value
+            resp = await asyncio.wait_for(client.confirm_transaction(sig, Confirmed), timeout=timeout)
+            status = resp.value[0] if resp.value else None
+            if status is not None and status.err is not None:
+                raise ChainError(f"transaction failed: {status.err}")
+            return str(sig)
+
+        return self._run(go())
 
     def airdrop(self, sol: float) -> str:
-        return self.rpc("requestAirdrop", str(self.payer.pubkey()), int(sol * 1_000_000_000))
+        async def go() -> str:
+            resp = await (await self._connected()).request_airdrop(self.payer.pubkey(), int(sol * 1_000_000_000))
+            return str(resp.value)
+
+        return self._run(go())
 
     def balance_sol(self) -> float:
-        return self.rpc("getBalance", str(self.payer.pubkey()))["value"] / 1_000_000_000
+        async def go() -> float:
+            return (await (await self._connected()).get_balance(self.payer.pubkey())).value / 1_000_000_000
+
+        return self._run(go())
 
 
 def explorer_url(rpc_url: str, kind: str, ident: str) -> str:
@@ -321,9 +346,7 @@ class Attestor:
         if status is None:
             return False
         accounts = [*self._authority_accounts(True), AccountMeta(SYSTEM_PROGRAM, is_signer=False, is_writable=False)]
-        sig = self.chain.send(
-            ClusterInstruction.build(ClusterInstruction.enum.Initialize(model_hash=model_hash(status))), accounts
-        )
+        sig = self.chain.send(instruction("Initialize", model_hash=model_hash(status)), accounts)
         self.initialized = True
         self.record("initialize", sig, cluster=str(self.cluster), model_hash=model_hash(status).hex())
         return True
@@ -332,18 +355,13 @@ class Attestor:
         state, hosts, active = worker_set(status)
         for host in hosts:
             if host not in self.registered:
-                sig = self.chain.send(
-                    ClusterInstruction.build(ClusterInstruction.enum.RegisterNode(host=host)),
-                    self._authority_accounts(False),
-                )
+                sig = self.chain.send(instruction("RegisterNode", host=host), self._authority_accounts(False))
                 self.registered.add(host)
                 self.record("register_node", sig, host=host)
         if self.last_set == (state, active):
             return False
-        sig = self.chain.send(
-            ClusterInstruction.build(ClusterInstruction.enum.SetWorkerSet(state=state, active=list(active))),
-            self._authority_accounts(False),
-        )
+        data = instruction("SetWorkerSet", state=state, active=list(active))
+        sig = self.chain.send(data, self._authority_accounts(False))
         self.last_set = (state, active)
         self.record("set_worker_set", sig, state=STATE_NAMES[state], active=list(active), reason=status.get("reason"))
         return True
@@ -362,13 +380,9 @@ class Attestor:
                 AccountMeta(job_pda(self.chain.program_id, self.cluster, job_id), is_signer=False, is_writable=True),
                 AccountMeta(SYSTEM_PROGRAM, is_signer=False, is_writable=False),
             ]
+            data = instruction("CommitJob", job_id=job_id, served_by=served_by, result_hash=digest)
             try:
-                sig = self.chain.send(
-                    ClusterInstruction.build(
-                        ClusterInstruction.enum.CommitJob(job_id=job_id, served_by=served_by, result_hash=digest)
-                    ),
-                    accounts,
-                )
+                sig = self.chain.send(data, accounts)
             except ChainError as e:
                 if "already in use" in str(e) or "custom program error" in str(e):
                     self.pending_jobs.pop(0)  # committed before, or rejected for good: do not retry
@@ -425,7 +439,7 @@ def main() -> None:
     ap.add_argument("--rpc-url", default=os.environ.get("SOLANA_RPC_URL", DEVNET))
     ap.add_argument("--keypair", default=os.environ.get("SOLANA_KEYPAIR", str(Path.home() / ".config/solana/id.json")))
     ap.add_argument("--program-id", default=default_program_id())
-    ap.add_argument("--status-url", default=os.environ.get("STATUS_URL", "http://192.168.50.13:9991/status"))
+    ap.add_argument("--status-url", default=os.environ.get("STATUS_URL", "http://192.168.50.10:9991/status"))
     ap.add_argument("--decision-log", default=os.environ.get("DECISION_LOG", str(HERE / "routing_decisions.jsonl")))
     ap.add_argument("--out", default=str(HERE / "attestations.jsonl"))
     ap.add_argument("--interval", type=float, default=2.0)
@@ -444,16 +458,8 @@ def main() -> None:
 
     if args.show:
         data = chain.account_data(att.cluster)
-        print(
-            json.dumps(
-                {
-                    "cluster": str(att.cluster),
-                    "explorer": explorer_url(args.rpc_url, "address", str(att.cluster)),
-                    **(decode_cluster(data) if data else {"initialized": False}),
-                },
-                indent=2,
-            )
-        )
+        doc = {"cluster": str(att.cluster), "explorer": explorer_url(args.rpc_url, "address", str(att.cluster))}
+        print(json.dumps({**doc, **(decode_cluster(data) if data else {"initialized": False})}, indent=2))
         return
     print(
         f"[attest] payer {payer.pubkey()} balance {chain.balance_sol():.3f} SOL, cluster account {att.cluster}",
