@@ -31,25 +31,13 @@
   become: true
 
   tasks:
-    # The Pis usually have no route to the internet (hotspot without upstream): apt then hangs
-    # for minutes per host before failing. This is the only apt task; skip it with
-    # --skip-tags network or -e apt_online=false on a cluster that already has the packages.
-    - name: Install dependencies
-      tags: [network]
-      when: apt_online | default(true) | bool
-      apt:
-        name:
-          - git
-          - build-essential
-          - python3
-          - python3-psutil       # node_agent.py: cpu / rss / net counters (stdlib fallback without it)
-          - python3-sentry-sdk   # supervisor.py: optional, active only with SENTRY_DSN in supervisor.env
-          - netcat-openbsd
-          - iperf3
-        state: present
+    # No apt here: the Pis usually have no route to the internet, and apt hangs for minutes per
+    # host before failing. A freshly imaged Pi needs `sudo apt install git build-essential python3`
+    # once by hand before the build below; python3-psutil and python3-sentry-sdk are optional
+    # (the agent and supervisor fall back to the stdlib without them).
 
-    # Every task that can leave the switch is tagged `network`: `--skip-tags network` runs the
-    # whole play on an offline cluster that already has the checkout and the packages.
+    # The clone is the one task that can leave the switch: `--skip-tags network` runs the
+    # whole play on an offline cluster that already has the checkout.
     - name: Clone distributed-llama
       tags: [network]
       git:
