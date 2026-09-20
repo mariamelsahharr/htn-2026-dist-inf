@@ -51,6 +51,12 @@ both take traffic; `restarting`, `down` and a degraded cluster below
 URL is unreachable the router asks the root API directly, so it works before the
 supervisor exists and still notices a dead root afterwards.
 
+## Dashboard
+
+`cd ../dashboard && pnpm install && pnpm build` once; the router then serves the
+built page at `http://localhost:8000/` (chat, cluster with per-Pi telemetry,
+tok/s per upstream, last answers). See `../dashboard/README.md`.
+
 ## Token rates
 
 Every logged answer carries `gen_tokens`, `tokens_source` and the rates behind the

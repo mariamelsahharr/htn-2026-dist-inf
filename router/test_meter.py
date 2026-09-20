@@ -79,3 +79,27 @@ def test_non_content_lines_are_ignored():
 
 def test_percentiles_are_nearest_rank():
     assert _percentile([5, 1, 3], 50) == 3 and _percentile([5, 1, 3], 95) == 5 and _percentile([7], 95) == 7
+
+
+def test_reasoning_tokens_do_not_count_as_generated():
+    # reported by the upstream (OpenAI shape)
+    m = TokenMeter(CLOUD, prompt_estimate=5)
+    m.see(chunk("a short answer"))
+    m.see(
+        chunk(
+            usage={"prompt_tokens": 5, "completion_tokens": 300, "completion_tokens_details": {"reasoning_tokens": 290}}
+        )
+    )
+    r = m.result(time.time() - 1)
+    assert (r["gen_tokens"], r["completion_tokens"], r["reasoning_tokens"]) == (10, 300, 290)
+    # hidden: billed far more than the text could hold, so the text length wins
+    m = TokenMeter(CLOUD, prompt_estimate=5)
+    m.see(chunk("x" * 120))
+    m.see(chunk(usage={"prompt_tokens": 5, "completion_tokens": 211}))
+    r = m.result(time.time() - 1)
+    assert r["gen_tokens"] == 30 and r["reasoning_tokens"] == 181 and r["tokens_source"] == "usage"
+    # a plain model's usage is taken as is
+    m = TokenMeter(CLOUD, prompt_estimate=5)
+    m.see(chunk("x" * 120))
+    m.see(chunk(usage={"prompt_tokens": 5, "completion_tokens": 33}))
+    assert "reasoning_tokens" not in m.result(time.time() - 1)

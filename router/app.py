@@ -29,7 +29,9 @@ from typing import Any
 
 import httpx2
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from responses import ResponseBuilder, error_body, responses_to_chat
@@ -339,14 +341,26 @@ class TokenMeter:
         self.chars += len(_answer_text(data))
 
     def result(self, t0: float) -> dict[str, Any]:
+        """Rates count what the client saw. A reasoning model's usage includes thinking tokens
+        that never stream, so those are removed (reported, or inferred from the text length)."""
+        out: dict[str, Any] = {}
         if self.usage:
-            gen, source = int(self.usage["completion_tokens"]), "usage"
+            billed = int(self.usage["completion_tokens"])
+            details = self.usage.get("completion_tokens_details") or {}
+            hidden = int(details.get("reasoning_tokens") or 0)
+            visible_estimate = round(self.chars / 4)
+            if not hidden and self.chars and billed > 3 * visible_estimate + 16:  # chars/4 is crude; be sure
+                hidden = billed - visible_estimate  # usage hides the reasoning; the text length is the honest count
+            gen, source = billed - hidden, "usage"
             prompt = int(self.usage.get("prompt_tokens") or self.prompt_estimate)
+            out["completion_tokens"] = billed
+            if hidden:
+                out["reasoning_tokens"] = hidden
         elif self.tier.is_local and self.chunks:
             gen, source, prompt = self.chunks, "chunks", self.prompt_estimate
         else:
             gen, source, prompt = round(self.chars / 4), "chars", self.prompt_estimate
-        out: dict[str, Any] = {"gen_tokens": gen, "tokens_source": source, "prompt_tokens_actual": prompt}
+        out.update({"gen_tokens": gen, "tokens_source": source, "prompt_tokens_actual": prompt})
         if self.t_first and self.t_first > t0:
             out["prefill_tps"] = round(prompt / (self.t_first - t0), 1)
         if self.t_first and self.t_last and self.t_last > self.t_first and gen > 1:
@@ -439,6 +453,8 @@ class Router:
         try:
             r = await self.client.get(self.cfg.local_tier.base_url + "/models", timeout=2.0)
             return "healthy" if r.status_code == 200 else "unreachable"
+        except httpx2.ConnectTimeout:
+            return "unreachable"  # no host there at all (a laptop off the Pi subnet), not a busy root
         except httpx2.TimeoutException:
             return self.st.cluster_status if self.st.cluster_status != "unknown" else "healthy"
         except httpx2.HTTPError:
@@ -856,6 +872,8 @@ class Router:
             "rates": self.rates(),
             "inflight": dict(self.st.inflight),
             "recent": list(self.st.recent),
+            "status_age_s": round(time.time() - self.st.status_last_ok, 1) if self.st.status_last_ok else None,
+            "cluster": self.st.status_detail,  # the supervisor document as last seen, for the dashboard
         }
 
     def rates(self) -> dict[str, dict[str, Any]]:
@@ -898,6 +916,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="pi-cluster router", lifespan=lifespan)
+# The dashboard may run on another origin (pnpm dev, or a laptop pointed at the router Pi).
+# The router has no auth, so open CORS costs nothing; the routing headers must be readable.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Served-By", "X-Route-Reason", "X-Request-Id"],
+)
 
 
 def _router(request: Request) -> Router:
@@ -942,6 +969,13 @@ async def responses(request: Request):
     except (ValueError, UnicodeDecodeError):
         return JSONResponse(error_body("invalid JSON body", "invalid_request"), status_code=400)
     return await _router(request).responses(body, dict(request.headers))
+
+
+# The built dashboard (dashboard/dist) is served at / when it exists; mounted last so
+# the API routes above win. `cd dashboard && pnpm build` produces it.
+DASHBOARD_DIST = Path(__file__).resolve().parent.parent / "dashboard" / "dist"
+if DASHBOARD_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=DASHBOARD_DIST, html=True), name="dashboard")
 
 
 if __name__ == "__main__":
