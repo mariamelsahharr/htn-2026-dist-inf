@@ -13,6 +13,7 @@ Stdlib only, Python 3.11.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import os
@@ -26,11 +27,12 @@ import time
 import urllib.error
 import urllib.request
 from collections import deque
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from collections.abc import Callable
+from pathlib import Path
 
 HEALTHY = "healthy"
 DEGRADED = "degraded"
@@ -39,8 +41,10 @@ DOWN = "down"
 
 DEFAULT_MODEL_DIR = "/home/pi/distributed-llama/models/qwen3_0.6b_q40"
 DEFAULT_PROBE_CMD = "ping -c 1 -W 1 {host}"
-DEFAULT_RESET_CMD = ("ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "
-                     "pi@{host} sudo systemctl restart dllama-worker")
+DEFAULT_RESET_CMD = (
+    "ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "
+    "pi@{host} sudo systemctl restart dllama-worker"
+)
 
 
 def now_iso() -> str:
@@ -49,7 +53,7 @@ def now_iso() -> str:
 
 try:
     import sentry_sdk
-except ImportError:                       # Pis without the SDK: telemetry is a no-op
+except ImportError:  # Pis without the SDK: telemetry is a no-op
     sentry_sdk = None
 
 _pylog = logging.getLogger("supervisor")
@@ -62,41 +66,39 @@ def sentry_init_from_env() -> None:
     dsn = os.environ.get("SENTRY_DSN", "")
     if not (sentry_sdk and dsn):
         return
+    env = os.environ.get("SENTRY_ENVIRONMENT", "demo")
     try:
         try:
-            sentry_sdk.init(dsn=dsn, environment=os.environ.get("SENTRY_ENVIRONMENT", "demo"),
-                            enable_logs=True, traces_sample_rate=0.0)
-        except TypeError:                 # older SDK without enable_logs
-            sentry_sdk.init(dsn=dsn, environment=os.environ.get("SENTRY_ENVIRONMENT", "demo"),
-                            traces_sample_rate=0.0)
+            sentry_sdk.init(dsn=dsn, environment=env, enable_logs=True, traces_sample_rate=0.0)
+        except TypeError:  # older SDK without enable_logs
+            sentry_sdk.init(dsn=dsn, environment=env, traces_sample_rate=0.0)
         _SENTRY_ON = True
         log("sentry telemetry enabled")
-    except Exception:  # noqa: BLE001 - observability must not stop the supervisor
+    except Exception:
         pass
 
 
 def sentry_note(msg: str, level: str = "info") -> None:
     """Ship a supervisor event to Sentry (log + message for warning/error). Never raises."""
-    if not _SENTRY_ON:
+    if not _SENTRY_ON or sentry_sdk is None:
         return
     try:
         getattr(_pylog, level, _pylog.info)(msg)
         if level in ("warning", "error"):
             sentry_sdk.capture_message(msg, level=level)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
 
 def log(msg: str) -> None:
     print(f"{now_iso()} {msg}", flush=True)
     if _SENTRY_ON:
-        try:
+        with contextlib.suppress(Exception):
             _pylog.info(msg)
-        except Exception:  # noqa: BLE001
-            pass
 
 
 # ------------------------------------------------------------------ pure logic
+
 
 def largest_power_of_two_at_most(n: int) -> int:
     p = 1
@@ -116,18 +118,34 @@ def powers_of_two(max_nodes: int) -> list[int]:
 # .m header: int32 magic, int32 size (incl. these two), then int32 key/value pairs.
 MODEL_MAGIC = 0xA00ABCD
 HEADER_KEYS = {
-    0: "version", 1: "arch_type", 2: "dim", 3: "hidden_dim", 4: "n_layers", 5: "n_heads",
-    6: "n_kv_heads", 7: "n_experts", 8: "n_active_experts", 9: "vocab_size", 10: "seq_len",
-    11: "hidden_act", 12: "rope_theta", 13: "weight_float_type", 14: "rope_scaling_factor",
-    15: "rope_scaling_low_freq_factor", 16: "rope_scaling_high_freq_factor",
-    17: "rope_scaling_orig_max_seq_len", 18: "rope_type", 19: "head_dim", 20: "norm_epsilon",
+    0: "version",
+    1: "arch_type",
+    2: "dim",
+    3: "hidden_dim",
+    4: "n_layers",
+    5: "n_heads",
+    6: "n_kv_heads",
+    7: "n_experts",
+    8: "n_active_experts",
+    9: "vocab_size",
+    10: "seq_len",
+    11: "hidden_act",
+    12: "rope_theta",
+    13: "weight_float_type",
+    14: "rope_scaling_factor",
+    15: "rope_scaling_low_freq_factor",
+    16: "rope_scaling_high_freq_factor",
+    17: "rope_scaling_orig_max_seq_len",
+    18: "rope_type",
+    19: "head_dim",
+    20: "norm_epsilon",
     21: "moe_hidden_dim",
 }
 
 
 def read_model_header(path: str) -> dict:
     """Parse a distributed-llama .m header; raises OSError/ValueError if it is not one."""
-    with open(path, "rb") as f:
+    with Path(path).open("rb") as f:
         magic, header_size = struct.unpack("<ii", f.read(8))
         if magic != MODEL_MAGIC:
             raise ValueError(f"{path}: not a distributed-llama model (magic 0x{magic:x})")
@@ -150,8 +168,7 @@ def valid_node_counts(header: dict, max_nodes: int) -> list[int]:
     return [n for n in range(1, max_nodes + 1) if all(d % n == 0 for d in dims)]
 
 
-def choose_workers(alive_in_priority: list, valid_counts: list[int] | None = None,
-                   min_nodes: int = 1) -> list | None:
+def choose_workers(alive_in_priority: list, valid_counts: list[int] | None = None, min_nodes: int = 1) -> list | None:
     """Largest valid set the alive workers fill, in priority order.
     None when no valid count fits between min_nodes and the survivors: stand down
     rather than launch a set the model or the RAM cannot take."""
@@ -187,6 +204,7 @@ class Worker:
         self.oks = 0
         self.last_seen: float | None = None
         self.last_probe: float | None = None
+        self.telemetry: dict | None = None
 
     @property
     def addr(self) -> str:
@@ -211,9 +229,14 @@ class Worker:
 
     def as_dict(self, in_set: bool) -> dict:
         return {
-            "host": self.host, "port": self.port, "alive": self.alive, "in_set": in_set,
+            "host": self.host,
+            "port": self.port,
+            "alive": self.alive,
+            "in_set": in_set,
             "consecutive_fails": self.fails,
-            "last_seen": self.last_seen, "last_probe": self.last_probe,
+            "last_seen": self.last_seen,
+            "last_probe": self.last_probe,
+            "telemetry": self.telemetry,
         }
 
 
@@ -235,6 +258,8 @@ class Config:
     interval: float = 2.0
     probe_cmd: str = DEFAULT_PROBE_CMD
     probe_timeout: float = 3.0
+    telemetry_port: int = 9997  # node_agent.py on every Pi; 0 disables
+    telemetry_timeout: float = 1.0
     fail_after: int = 2
     ok_after: int = 2
     rejoin_grace: float = 10.0
@@ -256,6 +281,7 @@ class Config:
 
 # ------------------------------------------------------------------ supervisor
 
+
 class Supervisor:
     """Owns the dllama-api process. probe/spawn/reset_worker/api_check are injectable."""
 
@@ -267,6 +293,7 @@ class Supervisor:
         spawn: Callable[[list[str], str], subprocess.Popen] | None = None,
         reset_worker: Callable[[str], bool] | None = None,
         api_check: Callable[[], bool] | None = None,
+        telemetry: Callable[[str], dict | None] | None = None,
     ) -> None:
         self.cfg = cfg
         self.workers = [Worker(h, p, cfg.fail_after, cfg.ok_after) for h, p in cfg.workers]
@@ -294,6 +321,8 @@ class Supervisor:
         self._spawn = spawn or self._spawn_root
         self._reset_worker = reset_worker or self._ssh_reset
         self._api_check = api_check or self._models_ok
+        self._telemetry = telemetry or self._fetch_telemetry
+        self.root_telemetry: dict | None = None
         self._pool = ThreadPoolExecutor(max_workers=max(1, len(self.workers)))
         self.model_header: dict | None = None
         self.valid_counts, self.node_counts_source = self._resolve_node_counts()
@@ -304,8 +333,10 @@ class Supervisor:
         if self.cfg.node_counts:
             counts = sorted({c for c in self.cfg.node_counts if 1 <= c <= max_nodes})
             if not counts:
-                log(f"--node-counts {self.cfg.node_counts} has no entry <= {max_nodes} nodes; "
-                    "the supervisor will stay down until that changes")
+                log(
+                    f"--node-counts {self.cfg.node_counts} has no entry <= {max_nodes} nodes; "
+                    "the supervisor will stay down until that changes"
+                )
             return counts, "override"
         try:
             self.model_header = read_model_header(self.cfg.model)
@@ -320,10 +351,13 @@ class Supervisor:
 
     def launch_or_stand_down(self, reason: str) -> None:
         """Launch on the best set the survivors allow, or report down and wait."""
+        self.valid_counts, self.node_counts_source = self._resolve_node_counts()  # the model file may have changed
         desired = self.choose(self.alive_workers())
         if desired is None:
-            msg = (f"only {len(self.alive_workers()) + 1} node(s) reachable; need a valid count "
-                   f"in {self.valid_counts} of at least {self.cfg.min_nodes}")
+            msg = (
+                f"only {len(self.alive_workers()) + 1} node(s) reachable; need a valid count "
+                f"in {self.valid_counts} of at least {self.cfg.min_nodes}"
+            )
             self.active = []
             if not (self.state == DOWN and self.state_reason == msg):
                 self.set_state(DOWN, msg)
@@ -335,7 +369,14 @@ class Supervisor:
 
     def event(self, msg: str) -> None:
         log(msg)
-        self.events.append({"t": time.time(), "msg": msg})
+        entry = {"t": time.time(), "msg": msg}
+        self.events.append(entry)
+        try:  # the failover history outlives a supervisor restart
+            Path(self.cfg.log_dir).mkdir(parents=True, exist_ok=True)
+            with (Path(self.cfg.log_dir) / "supervisor-events.jsonl").open("a") as fh:
+                fh.write(json.dumps(entry) + "\n")
+        except OSError:
+            pass
 
     def set_state(self, state: str, reason: str) -> None:
         changed = state != self.state
@@ -345,10 +386,10 @@ class Supervisor:
         self.state_reason = reason
         self.event(f"state={state}: {reason}")
         if changed:
-            level = {HEALTHY: "info", DEGRADED: "warning",
-                     RESTARTING: "warning", DOWN: "error"}.get(state, "info")
-            sentry_note(f"cluster state -> {state}: {reason} "
-                        f"(active={len(self.active)}, restarts={self.restarts})", level)
+            level = {HEALTHY: "info", DEGRADED: "warning", RESTARTING: "warning", DOWN: "error"}.get(state, "info")
+            sentry_note(
+                f"cluster state -> {state}: {reason} (active={len(self.active)}, restarts={self.restarts})", level
+            )
 
     @property
     def serving(self) -> bool:
@@ -374,15 +415,31 @@ class Supervisor:
             change = w.record(ok, now)
             if change is not None:
                 self.event(f"worker {w.host} {'reachable' if change else 'unreachable'}")
+        if self.cfg.telemetry_port:
+            hosts = [w.host for w in self.workers if w.alive] + ["127.0.0.1"]
+            docs = dict(zip(hosts, self._pool.map(self._telemetry, hosts), strict=True))
+            for w in self.workers:
+                w.telemetry = docs.get(w.host) if w.alive else None
+            self.root_telemetry = docs.get("127.0.0.1")
 
     def alive_workers(self) -> list[Worker]:
         return [w for w in self.workers if w.alive]
 
+    def _fetch_telemetry(self, host: str) -> dict | None:
+        url = f"http://{host}:{self.cfg.telemetry_port}/telemetry"
+        try:
+            with urllib.request.urlopen(url, timeout=self.cfg.telemetry_timeout) as r:
+                doc = json.loads(r.read().decode())
+                return doc if isinstance(doc, dict) else None
+        except (urllib.error.URLError, OSError, ValueError):
+            return None
+
     def _ping(self, host: str) -> bool:
         cmd = shlex.split(self.cfg.probe_cmd.format(host=shlex.quote(host)))
         try:
-            r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               timeout=self.cfg.probe_timeout)
+            r = subprocess.run(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=self.cfg.probe_timeout
+            )
             return r.returncode == 0
         except (subprocess.SubprocessError, OSError):
             return False
@@ -392,12 +449,18 @@ class Supervisor:
     def build_command(self, workers: list[Worker]) -> list[str]:
         cmd = [
             self.cfg.dllama_bin,
-            "--host", self.cfg.api_host,
-            "--port", str(self.cfg.api_port),
-            "--model", self.cfg.model,
-            "--tokenizer", self.cfg.tokenizer,
-            "--buffer-float-type", self.cfg.buffer_float_type,
-            "--nthreads", str(self.cfg.nthreads),
+            "--host",
+            self.cfg.api_host,
+            "--port",
+            str(self.cfg.api_port),
+            "--model",
+            self.cfg.model,
+            "--tokenizer",
+            self.cfg.tokenizer,
+            "--buffer-float-type",
+            self.cfg.buffer_float_type,
+            "--nthreads",
+            str(self.cfg.nthreads),
         ]
         cmd += shlex.split(self.cfg.extra_args)
         if workers:  # must be last: dllama-api swallows argv until the next '-'
@@ -405,9 +468,9 @@ class Supervisor:
         return cmd
 
     def _spawn_root(self, cmd: list[str], reason: str) -> subprocess.Popen:
-        os.makedirs(self.cfg.log_dir, exist_ok=True)
-        path = os.path.join(self.cfg.log_dir, "dllama-api.log")
-        f = open(path, "ab")
+        Path(self.cfg.log_dir).mkdir(parents=True, exist_ok=True)
+        path = Path(self.cfg.log_dir) / "dllama-api.log"
+        f = path.open("ab")  # handed to the child process; closed with it
         f.write(f"\n=== {now_iso()} gen={self.generation} {reason}\n$ {shlex.join(cmd)}\n".encode())
         f.flush()
         try:
@@ -423,24 +486,20 @@ class Supervisor:
         try:
             with urllib.request.urlopen(url, timeout=2.0) as r:
                 return r.status == 200
-        except Exception:  # noqa: BLE001 - a malformed reply during load is "not ready", never fatal
+        except Exception:
             return False
 
     def kill_root(self, reason: str) -> None:
         proc, self.proc = self.proc, None
         if proc is not None and proc.poll() is None:
             self.event(f"stopping root pid {proc.pid}: {reason}")
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 proc.terminate()
-            except ProcessLookupError:
-                pass
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                try:
+                with contextlib.suppress(ProcessLookupError):
                     proc.kill()
-                except ProcessLookupError:
-                    pass
                 proc.wait()
         if self._proc_log is not None:
             self._proc_log.close()
@@ -494,8 +553,9 @@ class Supervisor:
             self.launch_failures = 0
             missing = [w.host for w in self.workers if w not in workers]
             if missing:
-                self.set_state(DEGRADED, f"serving on {n} node(s) after {self.load_seconds}s; "
-                                         f"missing {', '.join(missing)}")
+                self.set_state(
+                    DEGRADED, f"serving on {n} node(s) after {self.load_seconds}s; missing {', '.join(missing)}"
+                )
             else:
                 self.set_state(HEALTHY, f"serving on all {n} node(s) after {self.load_seconds}s")
             return True
@@ -516,7 +576,7 @@ class Supervisor:
                 return f"root exited with code {rc} during load"
             try:
                 ready = self._api_check()
-            except Exception:  # noqa: BLE001 - never let a probe error strand the state machine
+            except Exception:
                 ready = False
             if ready:
                 return None
@@ -592,8 +652,10 @@ class Supervisor:
                 if self._grow_since is None:
                     self._grow_since = now
                     gained = [w.host for w in desired if w not in self.active]
-                    self.event(f"can grow to {len(desired) + 1} node(s) ({', '.join(gained)}); "
-                               f"waiting {self.cfg.rejoin_grace:.0f}s for them to settle")
+                    self.event(
+                        f"can grow to {len(desired) + 1} node(s) ({', '.join(gained)}); "
+                        f"waiting {self.cfg.rejoin_grace:.0f}s for them to settle"
+                    )
                 elif now - self._grow_since >= self.cfg.rejoin_grace:
                     self._grow_since = None
                     self.restart(f"rejoin: growing to {len(desired) + 1} node(s)")
@@ -601,14 +663,16 @@ class Supervisor:
         self._grow_since = None
 
     def run(self) -> None:
-        self.event(f"supervisor starting: {len(self.workers)} worker(s) configured, "
-                   f"api :{self.cfg.api_port}, status :{self.cfg.status_port}")
+        self.event(
+            f"supervisor starting: {len(self.workers)} worker(s) configured, "
+            f"api :{self.cfg.api_port}, status :{self.cfg.status_port}"
+        )
         self.event(f"valid node counts for this model: {self.valid_counts} ({self.node_counts_source})")
         while not self._stop.is_set():
             t0 = time.monotonic()
             try:
                 self.tick()
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 self.event(f"tick failed: {type(e).__name__}: {e}")
             self.publish()
             self._stop.wait(max(0.1, self.cfg.interval - (time.monotonic() - t0)))
@@ -632,14 +696,27 @@ class Supervisor:
             "min_nodes": self.cfg.min_nodes,
             "valid_node_counts": self.valid_counts,
             "node_counts_source": self.node_counts_source,
-            "model_header": {k: self.model_header[k] for k in
-                             ("arch_type", "dim", "hidden_dim", "n_layers", "n_heads",
-                              "n_kv_heads", "head_dim", "vocab_size", "seq_len")
-                             if k in self.model_header} if self.model_header else None,
+            "model_header": {
+                k: self.model_header[k]
+                for k in (
+                    "arch_type",
+                    "dim",
+                    "hidden_dim",
+                    "n_layers",
+                    "n_heads",
+                    "n_kv_heads",
+                    "head_dim",
+                    "vocab_size",
+                    "seq_len",
+                )
+                if k in self.model_header
+            }
+            if self.model_header
+            else None,
             "active_workers": [w.addr for w in self.active],
             "workers": [w.as_dict(id(w) in active_ids) for w in self.workers],
             "root": {
-                "pid": self.proc.pid if self.root_running() else None,
+                "pid": self.proc.pid if self.proc and self.root_running() else None,
                 "api": f"http://{self.cfg.api_host}:{self.cfg.api_port}/v1",
                 "model": self.cfg.model,
                 "nthreads": self.cfg.nthreads,
@@ -647,6 +724,7 @@ class Supervisor:
                 "ready_at": self.ready_at,
                 "load_seconds": self.load_seconds,
                 "last_api_ok": self.last_api_ok,
+                "telemetry": self.root_telemetry,
             },
             "generation": self.generation,
             "restarts": self.restarts,
@@ -664,9 +742,9 @@ class Supervisor:
             return
         tmp = self.cfg.status_file + ".tmp"
         try:
-            with open(tmp, "w") as f:
+            with Path(tmp).open("w") as f:
                 json.dump(self._snapshot, f)
-            os.replace(tmp, self.cfg.status_file)
+            Path(tmp).replace(self.cfg.status_file)
         except OSError as e:
             log(f"cannot write {self.cfg.status_file}: {e}")
 
@@ -677,11 +755,12 @@ class Supervisor:
 
 # ----------------------------------------------------------------- status HTTP
 
+
 def make_handler(sup: Supervisor):
     class Handler(BaseHTTPRequestHandler):
         server_version = "dllama-supervisor/1.0"
 
-        def log_message(self, *args) -> None:  # noqa: D102 - quiet
+        def log_message(self, format: str, *args: object) -> None:
             pass
 
         def _json(self, code: int, obj) -> None:
@@ -694,7 +773,7 @@ def make_handler(sup: Supervisor):
             self.end_headers()
             self.wfile.write(body)
 
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             path = self.path.split("?", 1)[0]
             if path in ("/", "/status", "/status.json"):
                 self._json(200, sup.last_snapshot())
@@ -705,7 +784,7 @@ def make_handler(sup: Supervisor):
             else:
                 self._json(404, {"error": "not found"})
 
-        def do_POST(self) -> None:  # noqa: N802
+        def do_POST(self) -> None:
             path = self.path.split("?", 1)[0]
             if path == "/restart":
                 sup.request_restart("manual restart via HTTP")
@@ -725,12 +804,16 @@ def serve_status(sup: Supervisor, host: str, port: int) -> ThreadingHTTPServer:
 
 # ------------------------------------------------------------------------ CLI
 
+
 def build_parser() -> argparse.ArgumentParser:
     d = Config(workers=[])
     ap = argparse.ArgumentParser(description="distributed-llama root supervisor with power-of-two failover")
-    ap.add_argument("--workers", default="192.168.50.11,192.168.50.12,192.168.50.14",
-                    help="comma-separated host[:port] in priority order; the first ones are kept "
-                         "when the set shrinks, so list the best-cooled / biggest-RAM nodes first")
+    ap.add_argument(
+        "--workers",
+        default="192.168.50.11,192.168.50.12,192.168.50.14",
+        help="comma-separated host[:port] in priority order; the first ones are kept "
+        "when the set shrinks, so list the best-cooled / biggest-RAM nodes first",
+    )
     ap.add_argument("--worker-port", type=int, default=9998)
     ap.add_argument("--dllama-bin", default=d.dllama_bin)
     ap.add_argument("--model", default=d.model)
@@ -747,42 +830,67 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--interval", type=float, default=d.interval, help="probe period in seconds")
     ap.add_argument("--probe-cmd", default=d.probe_cmd, help="liveness command; {host} is substituted")
     ap.add_argument("--probe-timeout", type=float, default=d.probe_timeout)
-    ap.add_argument("--fail-after", type=int, default=d.fail_after,
-                    help="consecutive probe misses before a worker counts as dead")
-    ap.add_argument("--ok-after", type=int, default=d.ok_after,
-                    help="consecutive probe hits before a dead worker counts as back")
-    ap.add_argument("--rejoin-grace", type=float, default=d.rejoin_grace,
-                    help="seconds a returned worker must stay up before the set grows")
+    ap.add_argument(
+        "--telemetry-port",
+        type=int,
+        default=d.telemetry_port,
+        help="node_agent.py port on every Pi, folded into /status; 0 disables",
+    )
+    ap.add_argument(
+        "--fail-after", type=int, default=d.fail_after, help="consecutive probe misses before a worker counts as dead"
+    )
+    ap.add_argument(
+        "--ok-after", type=int, default=d.ok_after, help="consecutive probe hits before a dead worker counts as back"
+    )
+    ap.add_argument(
+        "--rejoin-grace",
+        type=float,
+        default=d.rejoin_grace,
+        help="seconds a returned worker must stay up before the set grows",
+    )
     ap.add_argument("--no-auto-rejoin", action="store_true")
-    ap.add_argument("--reset-cmd", default=d.reset_cmd,
-                    help="run on each surviving worker before a relaunch; {host} is substituted")
+    ap.add_argument(
+        "--reset-cmd", default=d.reset_cmd, help="run on each surviving worker before a relaunch; {host} is substituted"
+    )
     ap.add_argument("--no-reset-workers", action="store_true")
-    ap.add_argument("--settle", type=float, default=d.settle,
-                    help="seconds between killing the root and relaunching it")
+    ap.add_argument(
+        "--settle", type=float, default=d.settle, help="seconds between killing the root and relaunching it"
+    )
     ap.add_argument("--ready-timeout", type=float, default=d.ready_timeout)
     ap.add_argument("--api-check-interval", type=float, default=d.api_check_interval)
-    ap.add_argument("--api-stall-timeout", type=float, default=d.api_stall_timeout,
-                    help="restart if /v1/models has not answered for this long; 0 disables")
+    ap.add_argument(
+        "--api-stall-timeout",
+        type=float,
+        default=d.api_stall_timeout,
+        help="restart if /v1/models has not answered for this long; 0 disables",
+    )
     ap.add_argument("--launch-backoff", type=float, default=d.launch_backoff)
-    ap.add_argument("--min-nodes", type=int, default=1,
-                    help="below this many nodes report down instead of launching (set it to the "
-                         "smallest count whose per-node share of the model fits in RAM)")
-    ap.add_argument("--node-counts", default="",
-                    help="comma-separated node counts to allow, e.g. 1,2,4,8; default derives "
-                         "them from the model header (divisibility of heads/dims/vocab)")
-    ap.add_argument("--print-command", action="store_true",
-                    help="print the dllama-api command for the full set and exit")
-    ap.add_argument("--print-node-counts", action="store_true",
-                    help="print the node counts the model allows and exit")
+    ap.add_argument(
+        "--min-nodes",
+        type=int,
+        default=1,
+        help="below this many nodes report down instead of launching (set it to the "
+        "smallest count whose per-node share of the model fits in RAM)",
+    )
+    ap.add_argument(
+        "--node-counts",
+        default="",
+        help="comma-separated node counts to allow, e.g. 1,2,4,8; default derives "
+        "them from the model header (divisibility of heads/dims/vocab)",
+    )
+    ap.add_argument(
+        "--print-command", action="store_true", help="print the dllama-api command for the full set and exit"
+    )
+    ap.add_argument("--print-node-counts", action="store_true", help="print the node counts the model allows and exit")
     return ap
 
 
 def config_from_args(args: argparse.Namespace) -> Config:
     return Config(
         workers=parse_workers(args.workers, args.worker_port),
-        dllama_bin=os.path.expanduser(args.dllama_bin),
-        model=os.path.expanduser(args.model),
-        tokenizer=os.path.expanduser(args.tokenizer),
+        dllama_bin=str(Path(args.dllama_bin).expanduser()),
+        model=str(Path(args.model).expanduser()),
+        tokenizer=str(Path(args.tokenizer).expanduser()),
         buffer_float_type=args.buffer_float_type,
         nthreads=args.nthreads,
         api_host=args.api_host,
@@ -791,10 +899,11 @@ def config_from_args(args: argparse.Namespace) -> Config:
         status_host=args.status_host,
         status_port=args.status_port,
         status_file=args.status_file,
-        log_dir=os.path.expanduser(args.log_dir),
+        log_dir=str(Path(args.log_dir).expanduser()),
         interval=args.interval,
         probe_cmd=args.probe_cmd,
         probe_timeout=args.probe_timeout,
+        telemetry_port=args.telemetry_port,
         fail_after=args.fail_after,
         ok_after=args.ok_after,
         rejoin_grace=args.rejoin_grace,
@@ -823,8 +932,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{sup.valid_counts} ({sup.node_counts_source})")
         if sup.model_header:
             h = sup.model_header
-            print(f"n_heads={h['n_heads']} kv_dim={h['kv_dim']} hidden_dim={h['hidden_dim']} "
-                  f"vocab_size={h['vocab_size']} n_layers={h.get('n_layers')}")
+            print(
+                f"n_heads={h['n_heads']} kv_dim={h['kv_dim']} hidden_dim={h['hidden_dim']} "
+                f"vocab_size={h['vocab_size']} n_layers={h.get('n_layers')}"
+            )
         return 0
     srv = serve_status(sup, cfg.status_host, cfg.status_port)
 

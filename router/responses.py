@@ -10,8 +10,8 @@ response.completed (with usage), response.failed.
 import json
 import time
 import uuid
-from typing import Any
 from collections.abc import Iterator
+from typing import Any
 
 _TEXT_TYPES = ("input_text", "output_text", "text")
 
@@ -84,17 +84,33 @@ def responses_to_chat(body: dict[str, Any]) -> tuple[dict[str, Any], dict[str, d
                 role = "system"
             messages.append({"role": role, "content": _content_to_chat(item.get("content"))})
         elif kind == "function_call":
-            pending.append({"id": item.get("call_id") or _uid("call"), "type": "function",
-                            "function": {"name": item.get("name", ""),
-                                         "arguments": item.get("arguments") or "{}"}})
+            pending.append(
+                {
+                    "id": item.get("call_id") or _uid("call"),
+                    "type": "function",
+                    "function": {"name": item.get("name", ""), "arguments": item.get("arguments") or "{}"},
+                }
+            )
         elif kind == "custom_tool_call":
-            pending.append({"id": item.get("call_id") or _uid("call"), "type": "function",
-                            "function": {"name": item.get("name", ""),
-                                         "arguments": json.dumps({"input": item.get("input") or ""})}})
+            pending.append(
+                {
+                    "id": item.get("call_id") or _uid("call"),
+                    "type": "function",
+                    "function": {
+                        "name": item.get("name", ""),
+                        "arguments": json.dumps({"input": item.get("input") or ""}),
+                    },
+                }
+            )
         elif kind in ("function_call_output", "custom_tool_call_output"):
             flush()
-            messages.append({"role": "tool", "tool_call_id": item.get("call_id", ""),
-                             "content": _output_to_text(item.get("output"))})
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": item.get("call_id", ""),
+                    "content": _output_to_text(item.get("output")),
+                }
+            )
         # reasoning, web_search_call and friends have no chat equivalent
     flush()
 
@@ -105,8 +121,10 @@ def responses_to_chat(body: dict[str, Any]) -> tuple[dict[str, Any], dict[str, d
             continue
         kind = tool.get("type")
         if kind == "function":
-            fn: dict[str, Any] = {"name": tool.get("name", ""),
-                                  "parameters": tool.get("parameters") or {"type": "object", "properties": {}}}
+            fn: dict[str, Any] = {
+                "name": tool.get("name", ""),
+                "parameters": tool.get("parameters") or {"type": "object", "properties": {}},
+            }
             if tool.get("description"):
                 fn["description"] = tool["description"]
             tools.append({"type": "function", "function": fn})
@@ -116,10 +134,20 @@ def responses_to_chat(body: dict[str, Any]) -> tuple[dict[str, Any], dict[str, d
             fmt = tool.get("format") or {}
             if fmt.get("definition"):
                 desc += f"\nInput grammar ({fmt.get('syntax', '')}):\n{fmt['definition']}"
-            tools.append({"type": "function", "function": {
-                "name": tool.get("name", ""), "description": desc,
-                "parameters": {"type": "object", "required": ["input"],
-                               "properties": {"input": {"type": "string", "description": "Raw tool input"}}}}})
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.get("name", ""),
+                        "description": desc,
+                        "parameters": {
+                            "type": "object",
+                            "required": ["input"],
+                            "properties": {"input": {"type": "string", "description": "Raw tool input"}},
+                        },
+                    },
+                }
+            )
 
     chat: dict[str, Any] = {"model": body.get("model"), "messages": messages, "stream": bool(body.get("stream"))}
     if tools:
@@ -160,18 +188,28 @@ class ResponseBuilder:
 
     def _response(self, status: str, error: dict[str, Any] | None = None) -> dict[str, Any]:
         return {
-            "id": self.id, "object": "response", "created_at": self.created_at, "status": status,
-            "model": self.model, "output": list(self.output), "error": error,
-            "incomplete_details": None, "usage": self.usage_object() if status == "completed" else None,
+            "id": self.id,
+            "object": "response",
+            "created_at": self.created_at,
+            "status": status,
+            "model": self.model,
+            "output": list(self.output),
+            "error": error,
+            "incomplete_details": None,
+            "usage": self.usage_object() if status == "completed" else None,
         }
 
     def usage_object(self) -> dict[str, Any]:
         u = self.usage or {}
         inp = int(u.get("prompt_tokens") or 0)
         out = int(u.get("completion_tokens") or 0)
-        return {"input_tokens": inp, "output_tokens": out, "total_tokens": inp + out,
-                "input_tokens_details": {"cached_tokens": 0},
-                "output_tokens_details": {"reasoning_tokens": 0}}
+        return {
+            "input_tokens": inp,
+            "output_tokens": out,
+            "total_tokens": inp + out,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens_details": {"reasoning_tokens": 0},
+        }
 
     def start(self) -> Iterator[str]:
         yield self._event("response.created", response=self._response("in_progress"))
@@ -187,15 +225,28 @@ class ResponseBuilder:
             if content:
                 if not self.msg_open:
                     self.msg_open = True
-                    yield self._event("response.output_item.added", output_index=0, item={
-                        "id": self.msg_id, "type": "message", "status": "in_progress",
-                        "role": "assistant", "content": []})
-                    yield self._event("response.content_part.added", item_id=self.msg_id,
-                                      output_index=0, content_index=0,
-                                      part={"type": "output_text", "text": "", "annotations": []})
+                    yield self._event(
+                        "response.output_item.added",
+                        output_index=0,
+                        item={
+                            "id": self.msg_id,
+                            "type": "message",
+                            "status": "in_progress",
+                            "role": "assistant",
+                            "content": [],
+                        },
+                    )
+                    yield self._event(
+                        "response.content_part.added",
+                        item_id=self.msg_id,
+                        output_index=0,
+                        content_index=0,
+                        part={"type": "output_text", "text": "", "annotations": []},
+                    )
                 self.text.append(content)
-                yield self._event("response.output_text.delta", item_id=self.msg_id,
-                                  output_index=0, content_index=0, delta=content)
+                yield self._event(
+                    "response.output_text.delta", item_id=self.msg_id, output_index=0, content_index=0, delta=content
+                )
             for i, tc in enumerate(delta.get("tool_calls") or []):
                 slot = self.calls.setdefault(tc.get("index", i), {"id": None, "name": "", "arguments": ""})
                 if tc.get("id"):
@@ -210,13 +261,14 @@ class ResponseBuilder:
         idx = 0
         if self.msg_open:
             text = "".join(self.text)
-            yield self._event("response.output_text.done", item_id=self.msg_id, output_index=0,
-                              content_index=0, text=text)
+            yield self._event(
+                "response.output_text.done", item_id=self.msg_id, output_index=0, content_index=0, text=text
+            )
             part = {"type": "output_text", "text": text, "annotations": []}
-            yield self._event("response.content_part.done", item_id=self.msg_id, output_index=0,
-                              content_index=0, part=part)
-            item = {"id": self.msg_id, "type": "message", "status": "completed",
-                    "role": "assistant", "content": [part]}
+            yield self._event(
+                "response.content_part.done", item_id=self.msg_id, output_index=0, content_index=0, part=part
+            )
+            item = {"id": self.msg_id, "type": "message", "status": "completed", "role": "assistant", "content": [part]}
             self.output.append(item)
             yield self._event("response.output_item.done", output_index=0, item=item)
             idx = 1
@@ -228,19 +280,31 @@ class ResponseBuilder:
                     inp = json.loads(call["arguments"] or "{}").get("input", "")
                 except (ValueError, AttributeError):
                     inp = call["arguments"]
-                item = {"id": _uid("ctc"), "type": "custom_tool_call", "status": "completed",
-                        "call_id": call_id, "name": call["name"], "input": inp}
+                item = {
+                    "id": _uid("ctc"),
+                    "type": "custom_tool_call",
+                    "status": "completed",
+                    "call_id": call_id,
+                    "name": call["name"],
+                    "input": inp,
+                }
             else:
-                item = {"id": _uid("fc"), "type": "function_call", "status": "completed",
-                        "call_id": call_id, "name": call["name"], "arguments": call["arguments"] or "{}"}
-            yield self._event("response.output_item.added", output_index=idx,
-                              item={**item, "status": "in_progress"})
+                item = {
+                    "id": _uid("fc"),
+                    "type": "function_call",
+                    "status": "completed",
+                    "call_id": call_id,
+                    "name": call["name"],
+                    "arguments": call["arguments"] or "{}",
+                }
+            yield self._event("response.output_item.added", output_index=idx, item={**item, "status": "in_progress"})
             self.output.append(item)
             yield self._event("response.output_item.done", output_index=idx, item=item)
             idx += 1
         if error:
-            yield self._event("response.failed", response=self._response(
-                "failed", error={"code": "upstream_error", "message": error}))
+            yield self._event(
+                "response.failed", response=self._response("failed", error={"code": "upstream_error", "message": error})
+            )
             return
         yield self._event("response.completed", response=self._response("completed"))
 

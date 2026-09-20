@@ -13,28 +13,45 @@ import os
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 
-WORDS = "a hash map stores key value pairs in buckets chosen by hashing the key".split()
+WORDS = [
+    "a",
+    "hash",
+    "map",
+    "stores",
+    "key",
+    "value",
+    "pairs",
+    "in",
+    "buckets",
+    "chosen",
+    "by",
+    "hashing",
+    "the",
+    "key",
+]
 
 
 def dead_hosts() -> set:
     path = os.environ.get("FAKE_DEAD_FILE", "")
-    if not path or not os.path.exists(path):
+    if not path or not Path(path).exists():
         return set()
-    with open(path) as f:
+    with Path(path).open() as f:
         return {line.strip() for line in f if line.strip()}
 
 
 class Handler(BaseHTTPRequestHandler):
     model_path = "fake"
 
-    def log_message(self, *args) -> None:
+    def log_message(self, format: str, *args: object) -> None:
         pass
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         if self.path == "/v1/models":
-            body = json.dumps({"object": "list", "data": [
-                {"id": os.path.basename(self.model_path), "object": "model", "owned_by": "fake"}]}).encode()
+            body = json.dumps(
+                {"object": "list", "data": [{"id": Path(self.model_path).name, "object": "model", "owned_by": "fake"}]}
+            ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -44,7 +61,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         if self.path != "/v1/chat/completions":
             self.send_response(404)
             self.end_headers()
@@ -61,9 +78,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
             for i in range(tokens):
-                chunk = {"id": "fake", "object": "chat.completion.chunk", "model": "fake",
-                         "choices": [{"index": 0, "delta": {"content": WORDS[i % len(WORDS)] + " "},
-                                      "finish_reason": None}]}
+                chunk = {
+                    "id": "fake",
+                    "object": "chat.completion.chunk",
+                    "model": "fake",
+                    "choices": [{"index": 0, "delta": {"content": WORDS[i % len(WORDS)] + " "}, "finish_reason": None}],
+                }
                 self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
                 self.wfile.flush()
                 time.sleep(1.0 / tps)
@@ -72,10 +92,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         text = " ".join(WORDS[i % len(WORDS)] for i in range(tokens))
         time.sleep(tokens / tps)
-        resp = json.dumps({"id": "fake", "object": "chat.completion", "model": "fake",
-                           "choices": [{"index": 0, "finish_reason": "stop",
-                                        "message": {"role": "assistant", "content": text}}],
-                           "usage": {"prompt_tokens": 10, "completion_tokens": tokens}}).encode()
+        resp = json.dumps(
+            {
+                "id": "fake",
+                "object": "chat.completion",
+                "model": "fake",
+                "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": text}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": tokens},
+            }
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(resp)))

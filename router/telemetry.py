@@ -19,9 +19,11 @@ What lands in Sentry when enabled:
 
 from __future__ import annotations
 
+import contextlib
 import logging
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 log = logging.getLogger("router")
 
@@ -47,16 +49,16 @@ def init(dsn: str, environment: str = "demo") -> bool:
     global _enabled
     if not (sentry_sdk and dsn):
         return False
-    kwargs: dict[str, Any] = dict(
-        dsn=dsn,
-        environment=environment,
-        traces_sample_rate=1.0,     # hackathon traffic is tiny; keep every trace
-        send_default_pii=True,      # demo prompts/outputs are fine to show in the AI dashboard
-        enable_logs=True,           # Sentry Logs product
-    )
+    kwargs: dict[str, Any] = {
+        "dsn": dsn,
+        "environment": environment,
+        "traces_sample_rate": 1.0,  # hackathon traffic is tiny; keep every trace
+        "send_default_pii": True,  # demo prompts/outputs are fine to show in the AI dashboard
+        "enable_logs": True,  # Sentry Logs product
+    }
     try:
         sentry_sdk.init(**kwargs)
-    except TypeError:               # older SDK without enable_logs
+    except TypeError:  # older SDK without enable_logs
         kwargs.pop("enable_logs", None)
         sentry_sdk.init(**kwargs)
     _enabled = True
@@ -70,21 +72,21 @@ def enabled() -> bool:
 
 def _safe(fn, *a, **kw) -> None:
     """Telemetry must never take down a request."""
-    try:
+    with contextlib.suppress(Exception):
         fn(*a, **kw)
-    except Exception:  # noqa: BLE001
-        pass
 
 
 # ------------------------------------------------------------------ request tags
 
+
 def tag_request(decision: Any, cluster_status: str) -> None:
     """Tag the active transaction with the routing decision (searchable in Sentry)."""
-    if not _enabled:
+    if not _enabled or sentry_sdk is None:
         return
+    sdk = sentry_sdk  # narrowed here; the closure below cannot see the guard
 
     def _do() -> None:
-        scope = sentry_sdk.get_current_scope()
+        scope = sdk.get_current_scope()
         scope.set_tag("router.decision", getattr(decision, "upstream", "?"))
         scope.set_tag("router.reason", getattr(decision, "reason", "?"))
         scope.set_tag("router.cluster_status", cluster_status)
@@ -94,15 +96,16 @@ def tag_request(decision: Any, cluster_status: str) -> None:
 
 # ------------------------------------------------------------------ AI agent spans
 
+
 @contextmanager
 def agent_span(decision: Any, cluster_status: str) -> Iterator[Any]:
     """Wraps the whole fallback chain; makes the request show up as an AI agent run."""
-    if not _enabled:
+    if not _enabled or sentry_sdk is None:
         yield None
         return
     try:
         cm = sentry_sdk.start_span(op="gen_ai.invoke_agent", name="invoke_agent pi-router")
-    except Exception:  # noqa: BLE001
+    except Exception:
         yield None
         return
     with cm as span:
@@ -117,12 +120,12 @@ def agent_span(decision: Any, cluster_status: str) -> Iterator[Any]:
 @contextmanager
 def chat_span(upstream: str, model: str, attempt_index: int) -> Iterator[Any]:
     """One span per upstream attempt. attempt_index > 0 means we're escalating."""
-    if not _enabled:
+    if not _enabled or sentry_sdk is None:
         yield None
         return
     try:
         cm = sentry_sdk.start_span(op="gen_ai.chat", name=f"chat {model or upstream}")
-    except Exception:  # noqa: BLE001
+    except Exception:
         yield None
         return
     with cm as span:
@@ -148,9 +151,11 @@ def record_usage(span: Any, usage: Any) -> None:
     """Attach token usage from an OpenAI-style `usage` object to the chat span."""
     if span is None or not isinstance(usage, dict):
         return
-    pairs = (("prompt_tokens", "gen_ai.usage.input_tokens"),
-             ("completion_tokens", "gen_ai.usage.output_tokens"),
-             ("total_tokens", "gen_ai.usage.total_tokens"))
+    pairs = (
+        ("prompt_tokens", "gen_ai.usage.input_tokens"),
+        ("completion_tokens", "gen_ai.usage.output_tokens"),
+        ("total_tokens", "gen_ai.usage.total_tokens"),
+    )
     for src, dst in pairs:
         if isinstance(usage.get(src), int):
             _safe(span.set_data, dst, usage[src])
@@ -158,28 +163,38 @@ def record_usage(span: Any, usage: Any) -> None:
 
 # ------------------------------------------------------------------ logs
 
+
 def log_decision(record: dict[str, Any]) -> None:
     """Mirror routing_decisions.jsonl into Sentry Logs (structured attributes)."""
-    if not _enabled:
+    if not _enabled or sentry_sdk is None:
         return
 
     def _do() -> None:
-        extra = {f"router.{k}": v for k, v in record.items()
-                 if isinstance(v, (str, int, float, bool)) and k not in ("ts", "ts_iso")}
-        log.info("served_by=%s reason=%s latency_ms=%s fallback=%s",
-                 record.get("served_by"), record.get("reason"),
-                 record.get("latency_ms"), record.get("fallback"), extra=extra)
+        extra = {
+            f"router.{k}": v
+            for k, v in record.items()
+            if isinstance(v, (str, int, float, bool)) and k not in ("ts", "ts_iso")
+        }
+        log.info(
+            "served_by=%s reason=%s latency_ms=%s fallback=%s",
+            record.get("served_by"),
+            record.get("reason"),
+            record.get("latency_ms"),
+            record.get("fallback"),
+            extra=extra,
+        )
 
     _safe(_do)
 
 
 def set_ttft(ttft_ms: int) -> None:
     """Record time-to-first-token on the active transaction (queryable in traces)."""
-    if not _enabled:
+    if not _enabled or sentry_sdk is None:
         return
+    sdk = sentry_sdk
 
     def _do() -> None:
-        span = sentry_sdk.get_current_span()
+        span = sdk.get_current_span()
         if span is not None:
             span.set_data("router.ttft_ms", ttft_ms)
 

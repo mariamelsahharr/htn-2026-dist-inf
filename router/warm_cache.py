@@ -34,12 +34,13 @@ def main():
     ap.add_argument("--model", default="llama-3.2-3b-instruct")
     ap.add_argument("--out", default="demo_cache.json")
     ap.add_argument("--max-tokens", type=int, default=400)
-    ap.add_argument("--force-upstream", default="",
-                    help="cluster|baseten - pin which upstream generates the cached answer")
+    ap.add_argument(
+        "--force-upstream", default="", help="cluster|baseten - pin which upstream generates the cached answer"
+    )
     args = ap.parse_args()
 
-    lines = [l.strip() for l in Path(args.prompts).read_text().splitlines()]
-    prompts = [l for l in lines if l and not l.startswith("#")]
+    lines = [line.strip() for line in Path(args.prompts).read_text().splitlines()]
+    prompts = [line for line in lines if line and not line.startswith("#")]
     if not prompts:
         sys.exit("no prompts found")
 
@@ -58,12 +59,16 @@ def main():
         for i, p in enumerate(prompts, 1):
             print(f"[{i}/{len(prompts)}] {p[:70]}")
             try:
-                r = c.post(args.url, headers=headers, json={
-                    "model": args.model,
-                    "messages": [{"role": "user", "content": p}],
-                    "max_tokens": args.max_tokens,
-                    "stream": False,
-                })
+                r = c.post(
+                    args.url,
+                    headers=headers,
+                    json={
+                        "model": args.model,
+                        "messages": [{"role": "user", "content": p}],
+                        "max_tokens": args.max_tokens,
+                        "stream": False,
+                    },
+                )
                 r.raise_for_status()
                 text = r.json()["choices"][0]["message"]["content"]
                 cache[cache_key(p)] = text

@@ -22,6 +22,7 @@ Usage:
 """
 
 import argparse
+import contextlib
 import csv
 import json
 import os
@@ -33,7 +34,8 @@ import sys
 import threading
 import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 
 # ---------------------------------------------------------------- remote probe
 
@@ -59,12 +61,17 @@ done
 """
 
 SSH_OPTS = [
-    "-o", "StrictHostKeyChecking=accept-new",
-    "-o", "ConnectTimeout=5",
+    "-o",
+    "StrictHostKeyChecking=accept-new",
+    "-o",
+    "ConnectTimeout=5",
     # Keepalives tuned low so a yanked power cable is detected in ~6s, not 2min.
-    "-o", "ServerAliveInterval=2",
-    "-o", "ServerAliveCountMax=3",
-    "-o", "ExitOnForwardFailure=yes",
+    "-o",
+    "ServerAliveInterval=2",
+    "-o",
+    "ServerAliveCountMax=3",
+    "-o",
+    "ExitOnForwardFailure=yes",
 ]
 
 
@@ -81,16 +88,22 @@ def ssh_prefix(ssh_key=None, password=None):
     if password:
         cmd += ["sshpass", "-e"]
         env["SSHPASS"] = password
-    cmd += ["ssh"] + SSH_OPTS
+    cmd += ["ssh", *SSH_OPTS]
     if password:
-        cmd += ["-o", "PubkeyAuthentication=no",
-                "-o", "PreferredAuthentications=password,keyboard-interactive",
-                "-o", "NumberOfPasswordPrompts=1"]
+        cmd += [
+            "-o",
+            "PubkeyAuthentication=no",
+            "-o",
+            "PreferredAuthentications=password,keyboard-interactive",
+            "-o",
+            "NumberOfPasswordPrompts=1",
+        ]
     else:
         cmd += ["-o", "BatchMode=yes"]
     if ssh_key:
         cmd += ["-i", ssh_key]
     return cmd, env
+
 
 # Bit meanings from `vcgencmd get_throttled`.
 # NOTE: bits 0-3 are LIVE state. Bits 16-19 are STICKY "has happened since boot"
@@ -98,14 +111,14 @@ def ssh_prefix(ssh_key=None, password=None):
 # HAS occurred" + "throttling HAS occurred", i.e. history, not right now.
 # The live "currently throttled" bit is bit 2 (0x4).
 THROTTLE_BITS = [
-    (0,  "UNDERVOLT!",   True),
-    (1,  "FREQCAP!",     True),
-    (2,  "THROTTLED!",   True),
-    (3,  "SOFTTEMP!",    True),
-    (16, "uv-past",      False),
-    (17, "cap-past",     False),
-    (18, "thr-past",     False),
-    (19, "soft-past",    False),
+    (0, "UNDERVOLT!", True),
+    (1, "FREQCAP!", True),
+    (2, "THROTTLED!", True),
+    (3, "SOFTTEMP!", True),
+    (16, "uv-past", False),
+    (17, "cap-past", False),
+    (18, "thr-past", False),
+    (19, "soft-past", False),
 ]
 
 
@@ -118,6 +131,7 @@ def decode_throttle(value):
 
 
 # ---------------------------------------------------------------- ANSI helpers
+
 
 class C:
     RESET = "\033[0m"
@@ -136,6 +150,7 @@ def color(s, c, enabled=True):
 
 # ---------------------------------------------------------------- node monitor
 
+
 class Node:
     """One Pi. Owns a persistent ssh process and a reader thread."""
 
@@ -148,10 +163,10 @@ class Node:
         self.password = password
 
         self.lock = threading.Lock()
-        self.state = "connecting"      # connecting | ok | stale | down
-        self.sample = {}               # latest decoded sample
+        self.state = "connecting"  # connecting | ok | stale | down
+        self.sample = {}  # latest decoded sample
         self.last_seen = 0.0
-        self.prev_cpu = None           # (busy, total)
+        self.prev_cpu = None  # (busy, total)
         self.reconnects = 0
         self.last_error = ""
 
@@ -171,14 +186,12 @@ class Node:
     def _kill_proc(self):
         p = self._proc
         if p and p.poll() is None:
-            try:
+            with contextlib.suppress(Exception):
                 p.kill()
-            except Exception:
-                pass
 
     def _ssh_cmd(self):
         cmd, env = ssh_prefix(self.ssh_key, self.password)
-        cmd = cmd + [f"{self.user}@{self.host}", "bash -s"]
+        cmd = [*cmd, f"{self.user}@{self.host}", "bash -s"]
         return cmd, env
 
     def _run(self):
@@ -200,6 +213,7 @@ class Node:
                     bufsize=1,
                 )
                 script = REMOTE_PROBE.replace("%INTERVAL%", str(self.interval))
+                assert self._proc.stdin is not None and self._proc.stdout is not None  # both are PIPEs above
                 self._proc.stdin.write(script)
                 self._proc.stdin.close()
 
@@ -211,10 +225,8 @@ class Node:
                         backoff = 1.0
 
                 err = ""
-                try:
-                    err = (self._proc.stderr.read() or "").strip().splitlines()[-1]
-                except Exception:
-                    pass
+                with contextlib.suppress(Exception):
+                    err = (self._proc.stderr.read() if self._proc.stderr else "").strip().splitlines()[-1]
                 with self.lock:
                     self.state = "down"
                     self.last_error = err[:60]
@@ -257,7 +269,7 @@ class Node:
 
             m = re.search(r"=(\d+)", clk_s)
             arm_mhz = int(m.group(1)) // 1_000_000 if m else None
-            if not arm_mhz:          # sysfs fallback can report 0; show as unknown
+            if not arm_mhz:  # sysfs fallback can report 0; show as unknown
                 arm_mhz = None
 
             live, past = decode_throttle(thr)
@@ -291,16 +303,32 @@ class Node:
 
 # ---------------------------------------------------------------- side pollers
 
+
 def short_name(host):
     """pi-node-1.local -> pi-node-1; 192.168.50.11 stays 192.168.50.11."""
     return host[:-6] if host.endswith(".local") else host
 
 
 CSV_HEADER = [
-    "ts_iso", "ts_unix", "node", "state", "cpu_pct", "temp_c",
-    "arm_mhz", "throttled_hex", "live_flags", "past_flags",
-    "mem_avail_mb", "load1", "reconnects", "cluster_status",
-    "tps", "tps_source", "event", "cluster_nodes", "load_s",
+    "ts_iso",
+    "ts_unix",
+    "node",
+    "state",
+    "cpu_pct",
+    "temp_c",
+    "arm_mhz",
+    "throttled_hex",
+    "live_flags",
+    "past_flags",
+    "mem_avail_mb",
+    "load1",
+    "reconnects",
+    "cluster_status",
+    "tps",
+    "tps_source",
+    "event",
+    "cluster_nodes",
+    "load_s",
 ]
 
 
@@ -323,8 +351,8 @@ class StatusPoller(threading.Thread):
         self.url = url
         self.interval = interval
         self.value = "n/a"
-        self.nodes = ""          # "2/4" active/total from the supervisor
-        self.load_s = ""         # seconds the last launch took to become ready
+        self.nodes = ""  # "2/4" active/total from the supervisor
+        self.load_s = ""  # seconds the last launch took to become ready
         self.raw = {}
         self._stop = threading.Event()
 
@@ -357,9 +385,9 @@ class TpsFilePoller(threading.Thread):
     def run(self):
         while not self._stop.is_set():
             try:
-                age = time.time() - os.path.getmtime(self.path)
+                age = time.time() - Path(self.path).stat().st_mtime
                 if age < 15:
-                    with open(self.path) as fh:
+                    with Path(self.path).open() as fh:
                         d = json.load(fh)
                     self.tps = d.get("tps")
                     self.inflight = d.get("inflight")
@@ -391,11 +419,12 @@ class LogTailer(threading.Thread):
     def run(self):
         while not self._stop.is_set():
             cmd, env = ssh_prefix(self.ssh_key, self.password)
-            cmd = cmd + [f"{self.user}@{self.host}", f"tail -n 0 -F {self.path}"]
+            cmd = [*cmd, f"{self.user}@{self.host}", f"tail -n 0 -F {self.path}"]
             try:
                 self._proc = subprocess.Popen(
-                    cmd, env=env, stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL, text=True, bufsize=1)
+                    cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1
+                )
+                assert self._proc.stdout is not None  # a PIPE above
                 for line in self._proc.stdout:
                     if self._stop.is_set():
                         break
@@ -419,6 +448,7 @@ class LogTailer(threading.Thread):
 
 # ---------------------------------------------------------------- rendering
 
+
 def fmt(v, spec, default="-"):
     return default if v is None else format(v, spec)
 
@@ -437,14 +467,15 @@ def state_color(s):
     return {"ok": C.GRN, "connecting": C.YEL, "stale": C.YEL, "down": C.RED}.get(s, C.DIM)
 
 
-def render(nodes, status, tps_src, tps_val, marks, started, stale_after, use_color,
-           status_nodes="", status_load=""):
+def render(nodes, status, tps_src, tps_val, marks, started, stale_after, use_color, status_nodes="", status_load=""):
     cols = shutil.get_terminal_size((100, 30)).columns
     out = []
     elapsed = time.time() - started
-    hdr = (f"{C.BOLD}dllama cluster{C.RESET}  "
-           f"t+{int(elapsed)//60:02d}:{int(elapsed)%60:02d}  "
-           f"{datetime.now().strftime('%H:%M:%S')}")
+    hdr = (
+        f"{C.BOLD}dllama cluster{C.RESET}  "
+        f"t+{int(elapsed) // 60:02d}:{int(elapsed) % 60:02d}  "
+        f"{datetime.now().strftime('%H:%M:%S')}"
+    )
     bits = [hdr]
     if status is not None:
         sc = C.GRN if status == "healthy" else (C.RED if status in ("down", "unreachable") else C.YEL)
@@ -457,9 +488,14 @@ def render(nodes, status, tps_src, tps_val, marks, started, stale_after, use_col
     bits.append(f"marks={marks}")
     out.append("  ".join(bits))
 
-    out.append(color(
-        f"{'NODE':<16}{'STATE':<12}{'CPU%':>6}  {'TEMP':>7}  {'ARM':>8}  "
-        f"{'LOAD':>6}  {'MEMfree':>8}  {'RC':>3}  FLAGS", C.DIM, use_color))
+    out.append(
+        color(
+            f"{'NODE':<16}{'STATE':<12}{'CPU%':>6}  {'TEMP':>7}  {'ARM':>8}  "
+            f"{'LOAD':>6}  {'MEMfree':>8}  {'RC':>3}  FLAGS",
+            C.DIM,
+            use_color,
+        )
+    )
 
     hot = []
     for n in nodes:
@@ -477,21 +513,25 @@ def render(nodes, status, tps_src, tps_val, marks, started, stale_after, use_col
         if st == "down" and err:
             flags = color(err, C.RED, use_color)
 
-        row = (f"{n.name:<16}"
-               f"{color(f'{st:<12}', state_color(st), use_color)}"
-               f"{fmt(s.get('cpu_pct'), '6.1f')}  "
-               f"{color((fmt(temp, '6.1f') + 'C') if temp is not None else '      -', temp_color(temp), use_color)}  "
-               f"{fmt(s.get('arm_mhz'), '5d') + 'MHz' if s.get('arm_mhz') else '       -'}  "
-               f"{fmt(s.get('load1'), '6.2f')}  "
-               f"{(str(s.get('mem_avail_mb')) + 'MB').rjust(8) if s.get('mem_avail_mb') else '       -'}  "
-               f"{rc:>3}  {flags}")
-        out.append(row[:cols + 200])
+        row = (
+            f"{n.name:<16}"
+            f"{color(f'{st:<12}', state_color(st), use_color)}"
+            f"{fmt(s.get('cpu_pct'), '6.1f')}  "
+            f"{color((fmt(temp, '6.1f') + 'C') if temp is not None else '      -', temp_color(temp), use_color)}  "
+            f"{fmt(s.get('arm_mhz'), '5d') + 'MHz' if s.get('arm_mhz') else '       -'}  "
+            f"{fmt(s.get('load1'), '6.2f')}  "
+            f"{(str(s.get('mem_avail_mb')) + 'MB').rjust(8) if s.get('mem_avail_mb') else '       -'}  "
+            f"{rc:>3}  {flags}"
+        )
+        out.append(row[: cols + 200])
 
     if len(hot) > 1:
         hot.sort(reverse=True)
         spread = hot[0][0] - hot[-1][0]
-        note = (f"straggler watch: hottest {hot[0][1]} {hot[0][0]:.1f}C, "
-                f"coolest {hot[-1][1]} {hot[-1][0]:.1f}C, spread {spread:.1f}C")
+        note = (
+            f"straggler watch: hottest {hot[0][1]} {hot[0][0]:.1f}C, "
+            f"coolest {hot[-1][1]} {hot[-1][0]:.1f}C, spread {spread:.1f}C"
+        )
         out.append(color(note, C.MAG if spread >= 6 else C.DIM, use_color))
 
     out.append(color("ENTER = mark event   Ctrl-C = stop", C.DIM, use_color))
@@ -500,27 +540,30 @@ def render(nodes, status, tps_src, tps_val, marks, started, stale_after, use_col
 
 # ---------------------------------------------------------------- main
 
+
 def main():
     ap = argparse.ArgumentParser(description="Live telemetry for a Pi llama cluster.")
-    ap.add_argument("--nodes",
-                    default="pi-node-1.local,pi-node-2.local,pi-node-3.local,pi-node-4.local",
-                    help="comma-separated hosts; first one is treated as the root node")
-    ap.add_argument("--names", default="",
-                    help="display names, same order as --nodes (default: derived from hostname)")
+    ap.add_argument(
+        "--nodes",
+        default="pi-node-1.local,pi-node-2.local,pi-node-3.local,pi-node-4.local",
+        help="comma-separated hosts; first one is treated as the root node",
+    )
+    ap.add_argument("--names", default="", help="display names, same order as --nodes (default: derived from hostname)")
     ap.add_argument("--user", default="pi")
     ap.add_argument("--ssh-key", default=None)
-    ap.add_argument("--password", default=None,
-                    help="SSH password (needs sshpass installed). Prefer --password-env.")
-    ap.add_argument("--password-env", default=None, metavar="VAR",
-                    help="read the SSH password from this environment variable")
+    ap.add_argument("--password", default=None, help="SSH password (needs sshpass installed). Prefer --password-env.")
+    ap.add_argument(
+        "--password-env", default=None, metavar="VAR", help="read the SSH password from this environment variable"
+    )
     ap.add_argument("--interval", type=float, default=2.0)
     ap.add_argument("--csv", default=None, help="append samples here (recommended)")
-    ap.add_argument("--status-url", default=None,
-                    help="supervisor status JSON URL, e.g. http://192.168.1.10:9991/status")
-    ap.add_argument("--tps-file", default=None,
-                    help="sidecar JSON written by loadtest.py, e.g. /tmp/dllama_tps.json")
-    ap.add_argument("--log-path", default=None,
-                    help="root-node log to tail for tokens/sec, e.g. /var/log/dllama-root.log")
+    ap.add_argument(
+        "--status-url", default=None, help="supervisor status JSON URL, e.g. http://192.168.1.10:9991/status"
+    )
+    ap.add_argument("--tps-file", default=None, help="sidecar JSON written by loadtest.py, e.g. /tmp/dllama_tps.json")
+    ap.add_argument(
+        "--log-path", default=None, help="root-node log to tail for tokens/sec, e.g. /var/log/dllama-root.log"
+    )
     ap.add_argument("--tps-regex", default=r"(?i)(\d+(?:\.\d+)?)\s*(?:tok(?:ens)?/s|tps)")
     ap.add_argument("--tps-unit", choices=["tps", "ms_per_token"], default="tps")
     ap.add_argument("--no-color", action="store_true")
@@ -532,10 +575,12 @@ def main():
         if not password:
             sys.exit(f"error: ${args.password_env} is not set")
     if password and not shutil.which("sshpass"):
-        sys.exit("error: --password needs sshpass.\n"
-                 "  Debian/Ubuntu/WSL : sudo apt install sshpass\n"
-                 "  macOS             : brew install hudochenkov/sshpass/sshpass\n"
-                 "  or drop the flag and use an SSH key instead.")
+        sys.exit(
+            "error: --password needs sshpass.\n"
+            "  Debian/Ubuntu/WSL : sudo apt install sshpass\n"
+            "  macOS             : brew install hudochenkov/sshpass/sshpass\n"
+            "  or drop the flag and use an SSH key instead."
+        )
 
     use_color = not args.no_color and sys.stdout.isatty()
     hosts = [h.strip() for h in args.nodes.split(",") if h.strip()]
@@ -543,8 +588,7 @@ def main():
     # default display name: strip the .local suffix off the hostname; IPs stay whole
     names += [short_name(hosts[i]) for i in range(len(names), len(hosts))]
 
-    nodes = [Node(h, args.user, args.interval, args.ssh_key, names[i], password)
-             for i, h in enumerate(hosts)]
+    nodes = [Node(h, args.user, args.interval, args.ssh_key, names[i], password) for i, h in enumerate(hosts)]
     for n in nodes:
         n.start()
 
@@ -560,22 +604,23 @@ def main():
 
     tailer = None
     if args.log_path:
-        tailer = LogTailer(hosts[0], args.user, args.log_path,
-                           args.tps_regex, args.tps_unit, args.ssh_key, password)
+        tailer = LogTailer(hosts[0], args.user, args.log_path, args.tps_regex, args.tps_unit, args.ssh_key, password)
         tailer.start()
 
     # CSV
     writer = fh = None
-    csv_lock = threading.Lock()   # marker rows come from the ENTER thread
+    csv_lock = threading.Lock()  # marker rows come from the ENTER thread
     if args.csv:
-        new = not os.path.exists(args.csv) or os.path.getsize(args.csv) == 0
+        new = not Path(args.csv).exists() or Path(args.csv).stat().st_size == 0
         if not new:
-            with open(args.csv, newline="") as check:
+            with Path(args.csv).open(newline="") as check:
                 existing = next(csv.reader(check), [])
             if existing != CSV_HEADER:
-                sys.exit(f"{args.csv} has a different column layout ({len(existing)} columns, "
-                         f"expected {len(CSV_HEADER)}); use a new filename")
-        fh = open(args.csv, "a", newline="")
+                sys.exit(
+                    f"{args.csv} has a different column layout ({len(existing)} columns, "
+                    f"expected {len(CSV_HEADER)}); use a new filename"
+                )
+        fh = Path(args.csv).open("a", newline="")  # noqa: SIM115 - closed at exit
         writer = csv.writer(fh)
         if new:
             writer.writerow(CSV_HEADER)
@@ -598,16 +643,37 @@ def main():
             if writer:
                 now = time.time()
                 with csv_lock:
-                    writer.writerow([
-                        datetime.now(timezone.utc).isoformat(), f"{now:.3f}", "-", "-",
-                        "", "", "", "", "", "", "", "", "", "", "", "", label, "", "",
-                    ])
-                    fh.flush()
+                    writer.writerow(
+                        [
+                            datetime.now(UTC).isoformat(),
+                            f"{now:.3f}",
+                            "-",
+                            "-",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            label,
+                            "",
+                            "",
+                        ]
+                    )
+                    if fh:
+                        fh.flush()
 
     threading.Thread(target=mark_reader, daemon=True).start()
 
     def handle_sigint(*_):
         stop.set()
+
     signal.signal(signal.SIGINT, handle_sigint)
 
     started = time.time()
@@ -621,40 +687,54 @@ def main():
             elif tailer and tailer.tps is not None:
                 tps_val, tps_src = tailer.tps, "rootlog"
             else:
-                tps_val, tps_src = None, ("client" if tps_poller else
-                                          "rootlog" if tailer else "none")
+                tps_val, tps_src = None, ("client" if tps_poller else "rootlog" if tailer else "none")
 
-            frame = render(nodes, status, tps_src, tps_val, marks["n"],
-                           started, stale_after, use_color,
-                           status_poller.nodes if status_poller else "",
-                           status_poller.load_s if status_poller else "")
+            frame = render(
+                nodes,
+                status,
+                tps_src,
+                tps_val,
+                marks["n"],
+                started,
+                stale_after,
+                use_color,
+                status_poller.nodes if status_poller else "",
+                status_poller.load_s if status_poller else "",
+            )
             sys.stdout.write("\033[H" + frame + "\033[J")
             sys.stdout.flush()
 
             if writer:
                 now = time.time()
-                iso = datetime.now(timezone.utc).isoformat()
+                iso = datetime.now(UTC).isoformat()
                 with csv_lock:
                     for n in nodes:
                         st, s, rc, _ = n.snapshot(stale_after)
-                        writer.writerow([
-                            iso, f"{now:.3f}", n.name, st,
-                            fmt(s.get("cpu_pct"), ".2f", ""),
-                            fmt(s.get("temp_c"), ".1f", ""),
-                            s.get("arm_mhz", "") if s.get("arm_mhz") is not None else "",
-                            hex(s.get("throttled", 0)) if s else "",
-                            ";".join(s.get("live_flags") or []),
-                            ";".join(s.get("past_flags") or []),
-                            s.get("mem_avail_mb", "") if s.get("mem_avail_mb") is not None else "",
-                            fmt(s.get("load1"), ".2f", ""),
-                            rc,
-                            status or "",
-                            f"{tps_val:.2f}" if tps_val is not None else "",
-                            tps_src, "",
-                            status_poller.nodes if status_poller else "",
-                            status_poller.load_s if status_poller else "",
-                        ])
-                    fh.flush()
+                        writer.writerow(
+                            [
+                                iso,
+                                f"{now:.3f}",
+                                n.name,
+                                st,
+                                fmt(s.get("cpu_pct"), ".2f", ""),
+                                fmt(s.get("temp_c"), ".1f", ""),
+                                s.get("arm_mhz", "") if s.get("arm_mhz") is not None else "",
+                                hex(s.get("throttled", 0)) if s else "",
+                                ";".join(s.get("live_flags") or []),
+                                ";".join(s.get("past_flags") or []),
+                                s.get("mem_avail_mb", "") if s.get("mem_avail_mb") is not None else "",
+                                fmt(s.get("load1"), ".2f", ""),
+                                rc,
+                                status or "",
+                                f"{tps_val:.2f}" if tps_val is not None else "",
+                                tps_src,
+                                "",
+                                status_poller.nodes if status_poller else "",
+                                status_poller.load_s if status_poller else "",
+                            ]
+                        )
+                    if fh:
+                        fh.flush()
 
             stop.wait(args.interval)
     finally:

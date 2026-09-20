@@ -14,11 +14,6 @@ HEAVY_MARKERS = ("-heavy", ":heavy", "-big", "-cloud")
 
 # Words in the last user turn that mean "this is a whole-codebase or design task",
 # which a 3B model answers confidently and wrong. Matched case-insensitively.
-COMPLEX_KEYWORDS = (
-    "refactor", "rewrite", "migrate", "architecture", "redesign",
-    "across the codebase", "entire repo", "whole repo", "all files",
-    "from scratch",
-)
 _FENCE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.S)
 
 # Upstream names. These are also the values of the X-Served-By response header.
@@ -45,14 +40,16 @@ def cluster_state(status: dict[str, Any], min_local_nodes: int) -> str:
 @dataclass
 class Tier:
     """One OpenAI-compatible upstream. The policy reads name/model; app.py uses the rest."""
+
     name: str
     model: str
-    base_url: str = ""       # ends in /v1 for every tier, the cluster included
+    base_url: str = ""  # ends in /v1 for every tier, the cluster included
     api_key: str = ""
     handles_tools: bool = False
     is_local: bool = False
-    reasoning_effort: str | None = None   # OpenAI/Gemini knob; some models need "none" to accept tools
-    tools_model: str | None = None        # used instead of `model` when the request carries tools
+    reasoning_effort: str | None = None  # OpenAI/Gemini knob; some models need "none" to accept tools
+    tools_model: str | None = None  # used instead of `model` when the request carries tools
+    usage_in_stream: bool = False  # tier honours stream_options.include_usage (exact token counts)
 
     def model_for_request(self, with_tools: bool) -> str:
         return self.tools_model if (with_tools and self.tools_model) else self.model
@@ -65,6 +62,8 @@ class Tier:
         out = {**body, **overrides}
         if self.reasoning_effort:
             out["reasoning_effort"] = self.reasoning_effort
+        if out.get("stream") and self.usage_in_stream:
+            out["stream_options"] = {**(out.get("stream_options") or {}), "include_usage": True}
         return out
 
     def headers(self) -> dict[str, str]:
@@ -77,20 +76,21 @@ class Tier:
 @dataclass
 class RouterConfig:
     """Everything the policy needs to know. app.py builds this from env."""
-    size_threshold: int = 2048          # prompt_tokens + max_tokens above this -> cloud
-    cloud_available: bool = True        # False when no Baseten URL/key is configured
+
+    size_threshold: int = 2048  # prompt_tokens + max_tokens above this -> cloud
+    cloud_available: bool = True  # False when no Baseten URL/key is configured
     local_model: str = "llama-3.2-3b-instruct"
     cloud_model: str = "meta-llama/Llama-3.3-70B-Instruct"
     heavy_markers: tuple[str, ...] = HEAVY_MARKERS
-    default_max_tokens: int = 512       # assumed when the client doesn't say
+    default_max_tokens: int = 512  # assumed when the client doesn't say
     tiers: dict[str, Tier] = field(default_factory=dict)  # baseten is synthesised if absent
     local_base_url: str = ""
     cloud_order: tuple[str, ...] = DEFAULT_CLOUD_ORDER
-    heavy_tier: str = BASETEN           # size/health/heavy-tag escalations go here
-    tool_tier: str | None = None     # requests with tool definitions go here
-    complex_keywords: tuple[str, ...] = COMPLEX_KEYWORDS
-    code_lines_threshold: int = 120     # fenced code lines in the conversation
-    max_local_turns: int = 12           # messages
+    heavy_tier: str = BASETEN  # size/health/heavy-tag escalations go here
+    tool_tier: str | None = None  # requests with tool definitions go here
+    code_lines_threshold: int = 120  # fenced code lines in the conversation
+    max_local_turns: int = 12  # messages
+    catalogs: dict[str, tuple[str, ...]] = field(default_factory=dict)  # tier -> every model it offers
 
     def __post_init__(self) -> None:
         if self.cloud_available and BASETEN not in self.tiers:
@@ -115,7 +115,25 @@ class RouterConfig:
             return self.local_tier
         return self.tiers[upstream]
 
-    def model_for(self, upstream: str, with_tools: bool = False) -> str:
+    def known_models(self, name: str) -> set[str]:
+        """The tier's configured models plus its live catalog."""
+        tier = self.tiers[name]
+        return {m for m in (tier.model, tier.tools_model) if m} | set(self.catalogs.get(name, ()))
+
+    def tier_for_model(self, model: str) -> str | None:
+        """The tier that offers this model by name; None for `auto` and the local ids."""
+        wanted = normalize_model_id(model)
+        for name in self.cloud_tiers():
+            if wanted in self.known_models(name):
+                return name
+        return None
+
+    def model_for(self, upstream: str, with_tools: bool = False, requested: str | None = None) -> str:
+        """What to send: the model the client named if this tier offers it, else the tier's default."""
+        if upstream != CLUSTER and requested:
+            wanted = normalize_model_id(requested)
+            if wanted in self.known_models(upstream):
+                return wanted
         return self.tier(upstream).model_for_request(with_tools)
 
 
@@ -142,6 +160,7 @@ class Decision:
 
 
 # --------------------------------------------------------------------- tokens
+
 
 def _text_of(content: Any) -> str:
     """Messages may carry a plain string or a list of typed parts."""
@@ -174,21 +193,51 @@ def estimate_tokens(messages: list[dict[str, Any]]) -> int:
     return total
 
 
+NOT_CHAT = (
+    "embedding",
+    "whisper",
+    "tts",
+    "dall-e",
+    "moderation",
+    "realtime",
+    "transcribe",
+    "image",
+    "audio",
+    "search",
+    "babbage",
+    "davinci",
+    "instruct-0",
+    "computer-use",
+    "veo",
+    "imagen",
+    "aqa",
+    "embed",
+)
+
+
+def normalize_model_id(model: str) -> str:
+    """Gemini's compatibility endpoint lists `models/x`; clients and the router say `x`."""
+    return model.removeprefix("models/")
+
+
+def chat_models(ids: list[str]) -> tuple[str, ...]:
+    """A provider's list, trimmed to what can answer a chat: no embeddings, speech, image or search models."""
+    out: list[str] = []
+    for raw in ids:
+        m = normalize_model_id(str(raw))
+        if m and not any(tag in m.lower() for tag in NOT_CHAT) and m not in out:
+            out.append(m)
+    return tuple(out)
+
+
 def classify_complexity(messages: list[dict[str, Any]], cfg: "RouterConfig") -> str | None:
     """Reason string when the task is too complex for the local model, else None."""
     code_lines = 0
-    last_user = ""
     for m in messages or []:
-        text = _text_of(m.get("content"))
-        for block in _FENCE_RE.findall(text):
+        for block in _FENCE_RE.findall(_text_of(m.get("content"))):
             code_lines += block.count("\n") + 1
-        if m.get("role") == "user":
-            last_user = text
     if code_lines > cfg.code_lines_threshold:
         return "complex_task_code"
-    lowered = last_user.lower()
-    if any(kw in lowered for kw in cfg.complex_keywords):
-        return "complex_task_keyword"
     if len(messages or []) > cfg.max_local_turns:
         return "complex_task_turns"
     return None
@@ -204,16 +253,14 @@ def strip_heavy(model: str, markers: tuple[str, ...] = HEAVY_MARKERS) -> str:
     for marker in markers:
         if marker in m.lower():
             idx = m.lower().index(marker)
-            return (m[:idx] + m[idx + len(marker):]) or m
+            return (m[:idx] + m[idx + len(marker) :]) or m
     return m
 
 
 # ---------------------------------------------------------------- the policy
 
-def route(body: dict[str, Any],
-          headers: dict[str, str],
-          cluster_status: str,
-          cfg: RouterConfig) -> Decision:
+
+def route(body: dict[str, Any], headers: dict[str, str], cluster_status: str, cfg: RouterConfig) -> Decision:
     """Pick the upstream. Priority: force header, tools, cluster health, size,
     complexity, heavy tag / X-Escalate, else cluster. Unconfigured tiers degrade
     to heavy tier, then cluster with `_no_cloud` appended."""
@@ -230,15 +277,24 @@ def route(body: dict[str, Any],
                 upstream = heavy
             else:
                 upstream, reason = CLUSTER, reason + "_no_cloud"
-        return Decision(upstream=upstream, reason=reason,
-                        prompt_tokens=prompt_tokens, max_tokens=max_tokens,
-                        model_requested=model_req, model_sent=cfg.model_for(upstream, bool(body.get("tools"))),
-                        forced=forced)
+        return Decision(
+            upstream=upstream,
+            reason=reason,
+            prompt_tokens=prompt_tokens,
+            max_tokens=max_tokens,
+            model_requested=model_req,
+            model_sent=cfg.model_for(upstream, bool(body.get("tools")), model_req),
+            forced=forced,
+        )
 
-    # 0. explicit override (demo control)
+    # 0. explicit override: the X-Force-Upstream header, or asking for a tier's model by name
+    #    (what any OpenAI client can do; `auto` and the local ids leave the choice to the router)
     forced = headers.get("x-force-upstream", "").strip().lower()
     if forced == CLUSTER or forced in cfg.tiers:
         return finish(forced, "forced_by_header", forced=True)
+    pinned = cfg.tier_for_model(model_req)
+    if pinned:
+        return finish(pinned, "model_pinned", forced=True)
 
     # 1. tool calls: the local model is not tool-tuned
     if body.get("tools") and cfg.tool_tier:
@@ -270,6 +326,7 @@ def route(body: dict[str, Any],
 
 
 # ------------------------------------------------------------- fallback chain
+
 
 class Breaker:
     """Per-upstream circuit breaker: after `failures` consecutive errors an upstream
@@ -326,8 +383,7 @@ def fallback_chain(decision: Decision, cluster_status: str, cfg: RouterConfig) -
         if name not in chain:
             chain.append(name)
     cluster_ok = (cluster_status or "").lower() in SERVING_STATES
-    if (CLUSTER not in chain and cluster_ok
-            and not decision.reason.startswith(CLUSTER_UNFIT_REASONS)):
+    if CLUSTER not in chain and cluster_ok and not decision.reason.startswith(CLUSTER_UNFIT_REASONS):
         chain.append(CLUSTER)
     return chain
 
@@ -340,10 +396,9 @@ CONTINUATION_INSTRUCTION = (
 )
 
 
-def continuation_body(original: dict[str, Any],
-                      partial_text: str,
-                      model: str,
-                      instruction: str = CONTINUATION_INSTRUCTION) -> dict[str, Any]:
+def continuation_body(
+    original: dict[str, Any], partial_text: str, model: str, instruction: str = CONTINUATION_INSTRUCTION
+) -> dict[str, Any]:
     """Build the cloud request that resumes a stream the cluster dropped halfway.
 
     Once bytes have gone downstream we cannot silently re-run the request: the
@@ -364,16 +419,15 @@ def continuation_body(original: dict[str, Any],
 def models_payload(cfg: RouterConfig) -> dict[str, Any]:
     """/v1/models. Clients use this to populate model pickers and to sanity
     check the endpoint before sending real traffic, so it has to be right."""
-    ids = [cfg.local_model, cfg.local_model + "-heavy"]
+    entries = [(cfg.local_model, CLUSTER), (cfg.local_model + "-heavy", cfg.heavy_tier)]
+    seen = {m for m, _ in entries}
     for name in cfg.cloud_tiers():
         tier = cfg.tiers[name]
-        for model in (tier.model, tier.tools_model):
-            if model and model not in ids:
-                ids.append(model)
+        for model in (tier.model, tier.tools_model, *cfg.catalogs.get(name, ())):
+            if model and model not in seen:
+                entries.append((model, name))
+                seen.add(model)
     return {
         "object": "list",
-        "data": [
-            {"id": i, "object": "model", "created": 0, "owned_by": "pi-cluster"}
-            for i in ids
-        ],
+        "data": [{"id": m, "object": "model", "created": 0, "owned_by": owner} for m, owner in entries],
     }
