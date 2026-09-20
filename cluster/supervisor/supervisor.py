@@ -569,6 +569,11 @@ class Supervisor:
     def serving(self) -> bool:
         return self.state in (HEALTHY, DEGRADED)
 
+    def model_max_nodes(self) -> int:
+        """The most nodes this model can be sliced into, capped by the cluster size."""
+        cluster = len(self.workers) + 1
+        return min(cluster, max(self.valid_counts)) if self.valid_counts else cluster
+
     def root_running(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
@@ -801,12 +806,21 @@ class Supervisor:
             self.last_api_ok = self.ready_at
             self.last_api_check = self.ready_at
             missing = [w.host for w in self.workers if w not in workers]
-            if missing:
+            usable = self.model_max_nodes()
+            if not missing:
+                self.set_state(HEALTHY, f"serving on all {n} node(s) after {self.load_seconds}s")
+            elif n >= usable:
+                # every node the model can be sliced into is serving; the rest stand by
+                # (a model with 4 KV heads uses 4 nodes of an 8-node cluster, and that is healthy)
+                self.set_state(
+                    HEALTHY,
+                    f"serving on {n} node(s) after {self.load_seconds}s; {len(missing)} standing by, "
+                    f"the model slices into at most {usable}",
+                )
+            else:
                 self.set_state(
                     DEGRADED, f"serving on {n} node(s) after {self.load_seconds}s; missing {', '.join(missing)}"
                 )
-            else:
-                self.set_state(HEALTHY, f"serving on all {n} node(s) after {self.load_seconds}s")
             return True
         touched = self._root_reached_workers()
         if self.proc is not None and self.proc.poll() is not None:
@@ -981,6 +995,7 @@ class Supervisor:
             "state_age_s": round(now - self.state_since, 1),
             "nodes_total": len(self.workers) + 1,
             "nodes_active": len(self.active) + 1 if self.root_running() else 0,
+            "model_max_nodes": self.model_max_nodes(),
             "min_nodes": self.cfg.min_nodes,
             "valid_node_counts": self.valid_counts,
             "node_counts_source": self.node_counts_source,

@@ -45,7 +45,9 @@ export function StatusStrip({ stats, stale }: { stats: Stats; stale: boolean }) 
           <span className="font-medium capitalize">{state}</span>
           {c.nodes_active != null && (
             <span className="text-muted-foreground">
-              {c.nodes_active} of {c.nodes_total} nodes
+              {c.model_max_nodes != null && c.nodes_total != null && c.model_max_nodes < c.nodes_total
+                ? `${c.nodes_active} serving, ${c.nodes_total} in the cluster`
+                : `${c.nodes_active} of ${c.nodes_total} nodes`}
             </span>
           )}
           {stale && <span className="text-critical text-sm">router not answering</span>}

@@ -429,6 +429,27 @@ def test_full_ladder_down_and_back_up(lab):
     assert wait_for(lambda: sup.state == HEALTHY and len(lab.active()) == 3), sup.state_reason
 
 
+def test_a_model_that_slices_into_fewer_nodes_than_the_cluster_is_healthy(tmp_path):
+    # 8 nodes, a model with 4 KV heads (qwen3_30b_a3b): 4 serve, 4 stand by, and that is
+    # healthy, not degraded; the extra nodes are the failover pool
+    lab = Lab(tmp_path, workers=tuple(f"w{i}" for i in range(1, 8)), node_counts=[1, 2, 4]).start()
+    try:
+        sup = lab.sup
+        assert wait_for(lambda: sup.state == HEALTHY), sup.state_reason
+        assert lab.active() == ["w1", "w2", "w3"]
+        assert "4 standing by" in sup.state_reason and "at most 4" in sup.state_reason
+        doc = lab.status_file()
+        assert doc["nodes_active"] == 4 and doc["nodes_total"] == 8 and doc["model_max_nodes"] == 4
+        # losing a serving node degrades to 2 even though four idle nodes exist? No: a standby
+        # takes its place and the set stays at 4
+        gen = sup.generation
+        lab.set_dead("w2")
+        assert wait_for(lambda: sup.state == HEALTHY and sup.generation > gen), sup.state_reason
+        assert lab.active() == ["w1", "w3", "w4"]
+    finally:
+        lab.stop()
+
+
 def test_n_workers_with_model_derived_counts(tmp_path):
     """Five workers on a model that allows 6 nodes: all five serve. Lose one and
     the model does not allow 5, so it drops to 4 nodes (three workers)."""

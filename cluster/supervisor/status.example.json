@@ -5,6 +5,7 @@
   "state_age_s": 42.5,
   "nodes_total": 4,
   "nodes_active": 2,
+  "model_max_nodes": 4,
   "min_nodes": 2,
   "valid_node_counts": [
     1,

@@ -13,7 +13,8 @@ export interface Telemetry {
   load1: number | null
   cpu_mhz: number | null
   uptime_s: number | null
-  worker_listening?: boolean | null
+  worker_listening?: boolean | null // a dllama worker listens on :9998 only until the root connects
+  worker_connections?: number | null // established connections on :9998, 1 while serving
   ts?: number
 }
 
@@ -35,6 +36,7 @@ export interface ClusterStatus {
   state_age_s?: number
   nodes_total?: number
   nodes_active?: number
+  model_max_nodes?: number // the most nodes this model slices into; the rest stand by
   min_nodes?: number
   valid_node_counts?: number[]
   node_counts_source?: string

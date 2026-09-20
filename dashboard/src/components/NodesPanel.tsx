@@ -34,7 +34,12 @@ function Readings({ t }: { t: Telemetry | null | undefined }) {
   )
 }
 
-// State plus the one flag that matters: a node throttling right now.
+// A worker process is present when it is either waiting for the root (listening) or attached
+// to it (an established connection); neither means the process is gone.
+const workerGone = (t: Telemetry | null | undefined): boolean =>
+  t?.worker_listening === false && !(t.worker_connections ?? 0)
+
+// State plus the one flag that matters: a node throttling right now, or no worker process.
 function State({ text, tone, t }: { text: string; tone: "good" | "warn" | "critical" | "muted"; t?: Telemetry | null }) {
   const throttling = t?.flags.some((f) => !f.endsWith("_since_boot")) ?? false
   const color = { good: "text-foreground", warn: "text-warn", critical: "text-critical", muted: "text-muted-foreground" }[tone]
@@ -42,7 +47,7 @@ function State({ text, tone, t }: { text: string; tone: "good" | "warn" | "criti
     <span className="flex flex-col text-xs leading-tight">
       <span className={color}>{text}</span>
       {throttling && <span className="text-warn">throttling</span>}
-      {!throttling && t?.worker_listening === false && <span className="text-critical">worker not listening</span>}
+      {!throttling && workerGone(t) && <span className="text-critical">no worker process</span>}
     </span>
   )
 }
