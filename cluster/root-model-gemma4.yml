@@ -1,0 +1,57 @@
+---
+# Gemma 4 GGUF on the root, then (re)start the llama.cpp supervisor on it.
+#
+#   26B-A4B MoE, 14.6 GB, needs the cluster (default):
+#     ansible-playbook -i inventory.ini root-model-gemma4.yml -u pi
+#   E4B, 4.6 GB, fits one 8 GB Pi - the smoke test:
+#     ansible-playbook -i inventory.ini root-model-gemma4.yml -u pi \
+#       -e gguf_repo=ggml-org/gemma-4-E4B-it-GGUF -e gguf_file=gemma-4-E4B-it-Q4_0.gguf -e min_nodes=1
+
+- name: Download Gemma 4 on root
+  hosts: root
+  vars:
+    # Q4_0 on purpose: llama.cpp repacks it for the Pi's NEON/dotprod kernels at load time.
+    gguf_repo: ggml-org/gemma-4-26B-A4B-it-GGUF
+    gguf_file: gemma-4-26B-A4B-it-Q4_0.gguf
+    # Smallest node count whose combined free RAM holds the weights plus KV cache.
+    # 14.6 GB does not fit root + the first two workers (8 + 8 + 4 GB); it does with a fourth.
+    min_nodes: 4
+    ctx_size: 4096
+
+  tasks:
+    - name: Model directory
+      file:
+        path: /home/pi/models
+        state: directory
+        owner: pi
+        group: pi
+        mode: "0755"
+
+    - name: "Download {{ gguf_file }}"
+      get_url:
+        url: "https://huggingface.co/{{ gguf_repo }}/resolve/main/{{ gguf_file }}"
+        dest: "/home/pi/models/{{ gguf_file }}"
+        owner: pi
+        group: pi
+        mode: "0644"
+        timeout: 120
+      # get_url cannot resume; on a flaky uplink run on the root instead:
+      #   wget -c -P ~/models https://huggingface.co/<repo>/resolve/main/<file>
+
+    - name: Point the supervisor at it
+      copy:
+        dest: /home/pi/llama-supervisor.env
+        owner: pi
+        group: pi
+        mode: "0644"
+        content: |
+          GGUF=/home/pi/models/{{ gguf_file }}
+          MIN_NODES={{ min_nodes }}
+          CTX_SIZE={{ ctx_size }}
+
+    - name: Restart the llama.cpp supervisor on the new model
+      systemd:
+        name: llama-supervisor
+        state: restarted
+        daemon_reload: yes
+      become: true

@@ -102,6 +102,50 @@ curl http://pi-node-3.local:9990/v1/models
 4. Benchmark throughput and thermals.
 6. Replace Qwen3 0.6B with the intended larger demo model.
 
+## Gemma 4 on llama.cpp RPC
+
+distributed-llama cannot run Gemma 4: its converter only accepts `llama`, `mistral`,
+`qwen3` and `qwen3_moe`, and the runtime has no GELU, sliding-window attention,
+per-layer head sizes, post-attention/FFN norms or logit softcapping. llama.cpp can,
+and its RPC backend spreads the layers over the Pis. Same supervisor, same ports
+(9990 API, 9991 status), same `/status` contract, so the router and dashboard do not
+change; `/status` gains `"backend": "llamacpp"`.
+
+| | distributed-llama | llama.cpp RPC |
+|---|---|---|
+| Root | `dllama-api` | `llama-server --rpc ...` |
+| Workers | `dllama worker` :9998 | `ggml-rpc-server` :50052 (the root runs one too) |
+| Split | every tensor across nodes (tensor parallel) | whole layers per node (pipeline) |
+| More nodes buy | speed and RAM | RAM only: tokens walk the nodes in turn |
+| Valid node counts | must divide heads/dims (4 → 2 → 1) | any (8 → 7 → 6 ...) |
+| Units | `dllama-worker`, `dllama-supervisor` | `llama-rpc`, `llama-supervisor` |
+
+```bash
+ansible-playbook -i inventory.ini bootstrap.yml -u pi            # once: agent, SSH key
+ansible-playbook -i inventory.ini bootstrap-llamacpp.yml -u pi   # build llama.cpp, swap the units
+ansible-playbook -i inventory.ini root-model-gemma4.yml -u pi    # 26B-A4B Q4_0 (14.6 GB) + start
+ssh pi@192.168.50.10 journalctl -u llama-supervisor -f
+curl -s http://192.168.50.10:9991/status | python3 -m json.tool
+curl -s http://192.168.50.10:9990/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"Say hi in five words."}],"max_tokens":32}'
+```
+
+Smoke-test with the 4.6 GB E4B first (fits the root alone, so it isolates build
+problems from network ones); the command is at the top of `root-model-gemma4.yml`.
+
+- **First load is slow.** The root streams every worker its share of the weights
+  (14.6 GB over gigabit is minutes; over Wi-Fi do not try). `ggml-rpc-server -c`
+  caches them under `~/.cache/llama.cpp/rpc` on each Pi, so a failover relaunch reads
+  from the local card. Each card needs free space for its share; the root needs the
+  whole file plus its share.
+- **RAM floor.** `min_nodes` in `root-model-gemma4.yml` (default 4) lands in
+  `/home/pi/llama-supervisor.env`. llama.cpp places layers in proportion to each
+  node's free memory, so mixed 4/8 GB Pis are fine.
+- **No auth on 50052.** Keep it on the wired cluster subnet only.
+- `~/cluster up|down|status` follows whichever supervisor is enabled;
+  `BACKEND=dllama` / `BACKEND=llamacpp` forces one.
+- Back to dllama: `ansible-playbook -i inventory.ini bootstrap-llamacpp.yml -u pi -e llamacpp_state=off`
+
 ## Telemetry agent
 
 Every Pi runs `agent/node_agent.py` (unit `dllama-agent.service`, port 9997): one JSON

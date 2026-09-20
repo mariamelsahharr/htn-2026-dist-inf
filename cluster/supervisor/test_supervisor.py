@@ -24,6 +24,7 @@ from supervisor import (
     DEGRADED,
     DOWN,
     HEALTHY,
+    LLAMACPP,
     MODEL_MAGIC,
     RESTARTING,
     Config,
@@ -280,6 +281,48 @@ def test_cli_defaults_round_trip():
     assert cfg.auto_rejoin is False and cfg.reset_workers is True
 
 
+# ------------------------------------------------------------- llama.cpp backend
+
+
+def llamacpp_cfg(**kw) -> Config:
+    return Config(workers=[("a", 50052), ("b", 50052)], backend=LLAMACPP, model="/m/gemma-4-E4B-it-Q4_0.gguf", **kw)
+
+
+def test_llamacpp_command_lists_the_root_rpc_first_then_workers():
+    sup = Supervisor(llamacpp_cfg(extra_args="--no-webui", ctx_size=2048))
+    cmd = sup.build_command(sup.workers)
+    assert cmd[-4:] == ["-ngl", "99", "--rpc", "127.0.0.1:50052,a:50052,b:50052"]
+    assert cmd[cmd.index("--alias") + 1] == "gemma-4-E4B-it-Q4_0"
+    assert cmd[cmd.index("--ctx-size") + 1] == "2048"
+    assert "--no-webui" in cmd
+    assert "--tokenizer" not in cmd and "--workers" not in cmd and "--buffer-float-type" not in cmd
+
+
+def test_llamacpp_root_alone_without_a_local_rpc_runs_on_plain_cpu():
+    cmd = Supervisor(llamacpp_cfg(root_rpc="")).build_command([])
+    assert "--rpc" not in cmd and "-ngl" not in cmd
+
+
+def test_llamacpp_allows_every_node_count_and_shrinks_by_one():
+    sup = Supervisor(Config(workers=[(w, 50052) for w in "abcde"], backend=LLAMACPP, model="missing.gguf"))
+    assert sup.valid_counts == [1, 2, 3, 4, 5, 6]
+    assert "llama.cpp" in sup.node_counts_source
+    assert [w.host for w in sup.choose(sup.workers[:4])] == ["a", "b", "c", "d"]
+
+
+def test_llamacpp_node_counts_override_still_wins():
+    sup = Supervisor(llamacpp_cfg(node_counts=[1, 3]))
+    assert sup.valid_counts == [1, 3] and sup.node_counts_source == "override"
+
+
+def test_llamacpp_cli_defaults_follow_the_backend():
+    cfg = config_from_args(build_parser().parse_args(["--backend", "llamacpp", "--workers", "x,y:6000"]))
+    assert cfg.workers == [("x", 50052), ("y", 6000)]
+    assert "restart llama-rpc" in cfg.reset_cmd
+    dllama = config_from_args(build_parser().parse_args(["--workers", "x"]))
+    assert "restart dllama-worker" in dllama.reset_cmd and dllama.backend == "dllama"
+
+
 # ------------------------------------------------------------------ end to end
 
 
@@ -304,7 +347,14 @@ class Lab:
     """A supervisor wired to fake_dllama_api.py and a file-driven probe."""
 
     def __init__(
-        self, tmp_path, workers=("w1", "w2", "w3"), model="m.m", min_nodes=1, node_counts=None, load_seconds=0.3
+        self,
+        tmp_path,
+        workers=("w1", "w2", "w3"),
+        model="m.m",
+        min_nodes=1,
+        node_counts=None,
+        load_seconds=0.3,
+        backend="dllama",
     ):
         self.load_seconds = load_seconds
         self.dead_file = str(tmp_path / "dead")
@@ -317,6 +367,7 @@ class Lab:
             tokenizer="t.t",
             min_nodes=min_nodes,
             node_counts=node_counts,
+            backend=backend,
             api_port=self.port,
             status_file=str(tmp_path / "status.json"),
             log_dir=str(tmp_path / "logs"),
@@ -423,6 +474,24 @@ def test_full_ladder_down_and_back_up(lab):
     # everything back
     lab.set_dead()
     assert wait_for(lambda: sup.state == HEALTHY and len(lab.active()) == 3), sup.state_reason
+
+
+def test_llamacpp_ladder_drops_one_node_at_a_time(tmp_path):
+    """Layer split has no divisibility rule: losing one of three workers leaves a 3-node set."""
+    lab = Lab(tmp_path, model="gemma.gguf", backend=LLAMACPP).start()
+    try:
+        sup = lab.sup
+        assert wait_for(lambda: sup.state == HEALTHY), sup.state_reason
+        assert lab.status_file()["backend"] == LLAMACPP
+        gen = sup.generation
+        lab.set_dead("w2")
+        assert wait_for(lambda: sup.state == DEGRADED and sup.generation > gen), sup.state_reason
+        assert lab.active() == ["w1", "w3"]
+        assert lab.status_file()["nodes_active"] == 3
+        lab.set_dead()
+        assert wait_for(lambda: sup.state == HEALTHY and len(lab.active()) == 3), sup.state_reason
+    finally:
+        lab.stop()
 
 
 def test_n_workers_with_model_derived_counts(tmp_path):

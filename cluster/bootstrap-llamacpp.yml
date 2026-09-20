@@ -1,0 +1,136 @@
+---
+# llama.cpp RPC stack next to distributed-llama, for models dllama cannot run (Gemma 4).
+# Run bootstrap.yml first: it sets up the telemetry agent and the root's SSH key, both reused here.
+#
+#   ansible-playbook -i inventory.ini bootstrap-llamacpp.yml -u pi     # ~20 min per Pi, first time
+#   ansible-playbook -i inventory.ini root-model-gemma4.yml -u pi      # download + start
+#
+# Back to dllama: ansible-playbook -i inventory.ini bootstrap-llamacpp.yml -u pi -e llamacpp_state=off
+
+- name: Build llama.cpp with the RPC backend on every node
+  hosts: cluster
+  become: true
+  vars:
+    llamacpp_version: b11064  # has Gemma 4 and the ggml-rpc-server target; bump on purpose
+    llamacpp_state: "on"
+
+  tasks:
+    - name: Install build dependencies
+      apt:
+        name:
+          - git
+          - build-essential
+          - cmake
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Clone llama.cpp
+      git:
+        repo: https://github.com/ggml-org/llama.cpp.git
+        dest: /home/pi/llama.cpp
+        version: "{{ llamacpp_version }}"
+        depth: 1
+        update: no
+      become_user: pi
+
+    - name: Configure (CPU + RPC, no downloader, no tests)
+      command: >
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_RPC=ON -DGGML_NATIVE=ON
+        -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF
+      args:
+        chdir: /home/pi/llama.cpp
+        creates: /home/pi/llama.cpp/build/CMakeCache.txt
+      become_user: pi
+
+    # -j 3: four compilers at once run a 4 GB Pi out of memory
+    - name: Build ggml-rpc-server
+      command: cmake --build build --target ggml-rpc-server -j 3
+      args:
+        chdir: /home/pi/llama.cpp
+        creates: /home/pi/llama.cpp/build/bin/ggml-rpc-server
+      become_user: pi
+
+    - name: Install the RPC unit
+      copy:
+        src: systemd/llama-rpc.service
+        dest: /etc/systemd/system/llama-rpc.service
+        mode: "0644"
+
+    - name: Stop the dllama worker (same RAM)
+      systemd:
+        name: dllama-worker
+        enabled: no
+        state: stopped
+      failed_when: false
+      when: llamacpp_state == "on"
+
+    - name: Enable and start the RPC server
+      systemd:
+        name: llama-rpc
+        enabled: "{{ llamacpp_state == 'on' }}"
+        state: "{{ 'restarted' if llamacpp_state == 'on' else 'stopped' }}"
+        daemon_reload: yes
+
+    - name: Bring the dllama worker back
+      systemd:
+        name: dllama-worker
+        enabled: yes
+        state: started
+      when: llamacpp_state != "on" and inventory_hostname in groups['workers']
+
+
+- name: Root (supervisor owns llama-server)
+  hosts: root
+  become: true
+  vars:
+    llamacpp_state: "on"
+
+  tasks:
+    - name: Build llama-server
+      command: cmake --build build --target llama-server -j 3
+      args:
+        chdir: /home/pi/llama.cpp
+        creates: /home/pi/llama.cpp/build/bin/llama-server
+      become_user: pi
+
+    - name: Install the supervisor and the cluster wrapper
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: pi
+        group: pi
+        mode: "0755"
+      loop:
+        - { src: supervisor/supervisor.py, dest: /home/pi/supervisor.py }
+        - { src: cluster, dest: /home/pi/cluster }
+
+    - name: Install the llama.cpp supervisor unit
+      copy:
+        src: systemd/llama-supervisor.service
+        dest: /etc/systemd/system/llama-supervisor.service
+        mode: "0644"
+
+    - name: Stop the dllama supervisor (same ports)
+      systemd:
+        name: dllama-supervisor
+        enabled: no
+        state: stopped
+        daemon_reload: yes
+      failed_when: false
+      when: llamacpp_state == "on"
+
+    # Not started here: there is no model yet. root-model-gemma4.yml starts it.
+    - name: Enable the llama.cpp supervisor
+      systemd:
+        name: llama-supervisor
+        enabled: "{{ llamacpp_state == 'on' }}"
+        state: "{{ omit if llamacpp_state == 'on' else 'stopped' }}"
+        daemon_reload: yes
+
+    - name: Bring the dllama supervisor back
+      systemd:
+        name: dllama-supervisor
+        enabled: yes
+        state: started
+      when: llamacpp_state != "on"

@@ -3,6 +3,10 @@
 supervisor.py - runs dllama-api on the root and relaunches it on the largest node
 set the model allows when workers die or return. State on :9991/status.
 
+--backend llamacpp swaps the root for llama.cpp's llama-server and the workers for
+ggml-rpc-server (models dllama cannot run, e.g. Gemma 4). Same ladder, same status
+contract; the RPC backend splits by layer, so every node count is valid.
+
 Rules (from distributed-llama source, see README.md):
   never TCP-probe worker port 9998; never bare-connect to root port 9990;
   reset surviving workers over SSH before relaunch.
@@ -45,6 +49,14 @@ DEFAULT_RESET_CMD = (
     "ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "
     "pi@{host} sudo systemctl restart dllama-worker"
 )
+
+DLLAMA = "dllama"
+LLAMACPP = "llamacpp"
+# What differs per backend when the flag is not given explicitly.
+BACKEND_DEFAULTS = {
+    DLLAMA: {"worker_port": 9998, "reset_cmd": DEFAULT_RESET_CMD},
+    LLAMACPP: {"worker_port": 50052, "reset_cmd": DEFAULT_RESET_CMD.replace("dllama-worker", "llama-rpc")},
+}
 
 
 def now_iso() -> str:
@@ -277,6 +289,11 @@ class Config:
     node_counts: list[int] | None = None
     # Below this many nodes the supervisor reports `down` instead of launching (RAM floor).
     min_nodes: int = 1
+    backend: str = DLLAMA
+    # llamacpp only. With -ngl 99 every layer goes to an RPC device and the root's own
+    # CPU would hold none, so the root runs a ggml-rpc-server too and is listed first.
+    root_rpc: str = "127.0.0.1:50052"
+    ctx_size: int = 4096
 
 
 # ------------------------------------------------------------------ supervisor
@@ -330,6 +347,8 @@ class Supervisor:
 
     def _resolve_node_counts(self) -> tuple[list[int], str]:
         max_nodes = len(self.workers) + 1
+        if self.cfg.backend == LLAMACPP and not self.cfg.node_counts:
+            return list(range(1, max_nodes + 1)), "llama.cpp rpc (layer split, any count)"
         if self.cfg.node_counts:
             counts = sorted({c for c in self.cfg.node_counts if 1 <= c <= max_nodes})
             if not counts:
@@ -447,6 +466,8 @@ class Supervisor:
     # ----- root process --------------------------------------------------------
 
     def build_command(self, workers: list[Worker]) -> list[str]:
+        if self.cfg.backend == LLAMACPP:
+            return self._llamacpp_command(workers)
         cmd = [
             self.cfg.dllama_bin,
             "--host",
@@ -467,6 +488,30 @@ class Supervisor:
             cmd += ["--workers", *[w.addr for w in workers]]
         return cmd
 
+    def _llamacpp_command(self, workers: list[Worker]) -> list[str]:
+        cmd = [
+            self.cfg.dllama_bin,
+            "--host",
+            self.cfg.api_host,
+            "--port",
+            str(self.cfg.api_port),
+            "--model",
+            self.cfg.model,
+            "--alias",  # /v1/models then advertises the name the router derives from root.model
+            Path(self.cfg.model).stem,
+            "--ctx-size",
+            str(self.cfg.ctx_size),
+            "--threads",
+            str(self.cfg.nthreads),
+            "--parallel",
+            "1",
+        ]
+        cmd += shlex.split(self.cfg.extra_args)
+        rpc = ([self.cfg.root_rpc] if self.cfg.root_rpc else []) + [w.addr for w in workers]
+        if rpc:
+            cmd += ["-ngl", "99", "--rpc", ",".join(rpc)]
+        return cmd
+
     def _spawn_root(self, cmd: list[str], reason: str) -> subprocess.Popen:
         Path(self.cfg.log_dir).mkdir(parents=True, exist_ok=True)
         path = Path(self.cfg.log_dir) / "dllama-api.log"
@@ -482,7 +527,9 @@ class Supervisor:
         return proc
 
     def _models_ok(self) -> bool:
-        url = f"http://127.0.0.1:{self.cfg.api_port}/v1/models"
+        # llama-server answers 503 on /health until the weights are loaded and placed
+        path = "/health" if self.cfg.backend == LLAMACPP else "/v1/models"
+        url = f"http://127.0.0.1:{self.cfg.api_port}{path}"
         try:
             with urllib.request.urlopen(url, timeout=2.0) as r:
                 return r.status == 200
@@ -687,6 +734,7 @@ class Supervisor:
         now = time.time()
         active_ids = {id(w) for w in self.active}
         return {
+            "backend": self.cfg.backend,
             "state": self.state,
             "reason": self.state_reason,
             "since": self.state_since,
@@ -814,7 +862,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="comma-separated host[:port] in priority order; the first ones are kept "
         "when the set shrinks, so list the best-cooled / biggest-RAM nodes first",
     )
-    ap.add_argument("--worker-port", type=int, default=9998)
+    ap.add_argument(
+        "--backend",
+        choices=[DLLAMA, LLAMACPP],
+        default=d.backend,
+        help="dllama: dllama-api + dllama workers. llamacpp: llama-server + ggml-rpc-server "
+        "workers (pass llama-server as --dllama-bin and a .gguf as --model)",
+    )
+    ap.add_argument("--worker-port", type=int, default=None, help="default 9998 (dllama) or 50052 (llamacpp)")
+    ap.add_argument(
+        "--root-rpc",
+        default=d.root_rpc,
+        help="llamacpp: the root's own ggml-rpc-server, so the root holds layers too; '' leaves it out",
+    )
+    ap.add_argument("--ctx-size", type=int, default=d.ctx_size, help="llamacpp: context length")
     ap.add_argument("--dllama-bin", default=d.dllama_bin)
     ap.add_argument("--model", default=d.model)
     ap.add_argument("--tokenizer", default=d.tokenizer)
@@ -850,7 +911,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--no-auto-rejoin", action="store_true")
     ap.add_argument(
-        "--reset-cmd", default=d.reset_cmd, help="run on each surviving worker before a relaunch; {host} is substituted"
+        "--reset-cmd",
+        default=None,
+        help="run on each surviving worker before a relaunch; {host} is substituted "
+        "(default restarts dllama-worker, or llama-rpc with --backend llamacpp)",
     )
     ap.add_argument("--no-reset-workers", action="store_true")
     ap.add_argument(
@@ -886,8 +950,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def config_from_args(args: argparse.Namespace) -> Config:
+    defaults = BACKEND_DEFAULTS[args.backend]
     return Config(
-        workers=parse_workers(args.workers, args.worker_port),
+        workers=parse_workers(args.workers, args.worker_port or defaults["worker_port"]),
+        backend=args.backend,
+        root_rpc=args.root_rpc,
+        ctx_size=args.ctx_size,
         dllama_bin=str(Path(args.dllama_bin).expanduser()),
         model=str(Path(args.model).expanduser()),
         tokenizer=str(Path(args.tokenizer).expanduser()),
@@ -908,7 +976,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
         ok_after=args.ok_after,
         rejoin_grace=args.rejoin_grace,
         auto_rejoin=not args.no_auto_rejoin,
-        reset_cmd=args.reset_cmd,
+        reset_cmd=args.reset_cmd or defaults["reset_cmd"],
         reset_workers=not args.no_reset_workers,
         settle=args.settle,
         ready_timeout=args.ready_timeout,

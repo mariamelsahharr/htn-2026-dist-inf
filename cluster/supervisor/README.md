@@ -36,6 +36,22 @@ valid count whose per-node share fits the smallest Pi; it comes back up on its o
 when enough nodes return. With no fit at all the supervisor never falls through
 to a single node.
 
+## llama.cpp backend
+
+`--backend llamacpp` runs `llama-server` (pass it as `--dllama-bin`, a `.gguf` as
+`--model`) over `ggml-rpc-server` workers on port 50052. What changes:
+
+- every node count from 1 to N is valid (layers, not tensor slices), so losing one
+  of eight leaves seven; `--node-counts` and `--min-nodes` still apply
+- readiness is `GET /health` (503 until the weights are placed), not `/v1/models`
+- survivors are reset with `systemctl restart llama-rpc`
+- `--root-rpc` (default `127.0.0.1:50052`) puts the root's own RPC server first in
+  `--rpc`; with `-ngl 99` the root would otherwise hold no layers at all
+- `--alias` is the GGUF file stem, which is also the name the router derives from
+  `root.model`
+
+`--print-command` shows the exact `llama-server` line. Setup is in `../README.md`.
+
 ## The contract the router reads
 
 ```
@@ -88,7 +104,7 @@ Rollback to the plain root is one command: `ROOT_UNIT=dllama-root ~/cluster up`
 
 ```bash
 cd cluster/supervisor
-python3 -m pytest -q             # 27 tests, ~15 s, covers the whole ladder
+python3 -m pytest -q             # ~20 s, covers the whole ladder on both backends
 ```
 
 Or drive it by hand with the fake root:

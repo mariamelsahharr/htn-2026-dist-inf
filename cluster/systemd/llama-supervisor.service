@@ -1,0 +1,41 @@
+[Unit]
+Description=llama.cpp supervisor (llama-server root over RPC workers, N-node failover)
+After=network-online.target llama-rpc.service
+Wants=network-online.target llama-rpc.service
+# Same ports (9990/9991) and the same RAM as the dllama stack: never both.
+Conflicts=dllama-root.service dllama-supervisor.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/llama.cpp
+Environment=PYTHONUNBUFFERED=1
+# Defaults; root-model-gemma4.yml writes the real values to the env file below.
+Environment=GGUF=/home/pi/models/gemma-4-26B-A4B-it-Q4_0.gguf
+Environment=MIN_NODES=4
+Environment=CTX_SIZE=4096
+EnvironmentFile=-/home/pi/llama-supervisor.env
+Nice=-20
+OOMScoreAdjust=-500
+# Wired worker IPs, biggest-RAM first (same order as dllama-supervisor.service).
+# --ready-timeout: the first load streams the whole model to the workers over the wire.
+ExecStart=/usr/bin/python3 /home/pi/supervisor.py \
+    --backend llamacpp \
+    --workers 192.168.50.11,192.168.50.12,192.168.50.14,192.168.50.16,192.168.50.17,192.168.50.18,192.168.50.19 \
+    --dllama-bin /home/pi/llama.cpp/build/bin/llama-server \
+    --model ${GGUF} \
+    --ctx-size ${CTX_SIZE} \
+    --min-nodes ${MIN_NODES} \
+    --nthreads 4 \
+    --api-port 9990 \
+    --status-port 9991 \
+    --ready-timeout 1800 \
+    --log-dir /home/pi/logs
+Restart=always
+RestartSec=2
+KillMode=mixed
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
