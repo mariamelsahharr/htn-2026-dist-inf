@@ -1,0 +1,60 @@
+fix my detached HEAD state without losing work
+why does my container exit immediately with code 137 every time I run it
+what's the difference between systemctl reload and restart
+my api returns 200 but the body is empty, what's going on
+regex to validate a phone number with optional country code, US format
+whats the diff between ss -tulpn and netstat -tulpn these days
+why does my test pass locally but fail in CI when the fixture is basically empty
+how do i make a systemd service restart automatically when it crashes
+what's the difference between git revert and git reset
+how do I undo my last commit but keep the changes
+explain what (?i) and $1 actually do in this pattern I copied from stackoverflow
+how do I undo a merge that's already pushed
+write a one-liner to grep recursively but skip node_modules and .git
+what's the fastest way to write a repro test case from this stack trace
+my group by is throwing "column must appear in GROUP BY" and i don't get why
+how do i make jq output raw strings without the quotes when i'm piping to something else
+awk vs sed for extracting the 3rd column of a csv, which should I use
+give me a 2 sentence explanation of what docker actually is
+node says cannot find module but the file is right there whats going on
+write a query to get the second highest salary per department
+why does ss show connections in CLOSE_WAIT that never go away
+npm install created a node_modules folder bigger than my whole project, how do people deal with this
+why does my lookbehind work in regex101 but throw in javascript
+why does curl work but my fetch request gets 403
+why does my error say undefined is not a function when im calling a defined method
+send the same request with curl but ignore ssl cert errors locally
+what's event loop in JS, two sentences max no fluff
+explain REST vs GraphQL in two sentences like I'm tired
+how do i debug a query that hangs, is there a way to see where it's stuck
+convert this callback thing into async await without breaking error handling
+rsync flags for mirroring a dir to a remote server without copying unchanged files again
+make this nested if-else mess cleaner without changing behavior
+convert this for loop to a comprehension but keep the early return
+why is my jq filter returning null when the key definitely exists in the json
+how do I get dig to show me just the answer not all that extra garbage
+how do i run a ts file directly in node without compiling first
+docker compose up says port already in use but nothing is listening, what's going on
+how do i run a script every 30 seconds when cron only does minutes
+how small is too small for a unit test before it's just testing the language itself
+need a pattern to grab everything between two curly braces including newlines
+what's the point of a virtual DOM, keep it to two sentences
+what's causing IndexError on line 12 when the list clearly has items
+how do i stop a process that ignores kill -9
+how do i concatenate rows into one comma separated string per group
+how do I match a whole word but skip it when it's inside quotes
+how do I read a stack trace when it's all minified garbage
+why is my sql query so slow, the where clause has an index on it
+what's the difference between venv and virtualenvwrapper, and which should I use in 2025
+help me figure out why this returns true when it should be false
+how do I get out of a virtualenv once I'm done with it
+help I committed to main instead of my feature branch
+is there a way to match repeated words like "the the" without using backreferences
+what's the difference between greedy and lazy matching, my .* is eating too much
+dig returns different ips for the same record depending on where I run it, whats going on
+why does my tsconfig paths work in dev but break after tsc build
+is there a shorter way to check if all these strings are empty
+explain plan says full table scan but i have an index, what am i missing
+difference between -L and following redirects manually in curl
+write a systemd unit file for a node app that runs as a non-root user
+refactor this test to use a minimal fixture instead of mocking the whole database

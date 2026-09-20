@@ -1,0 +1,3000 @@
+awk to sum numbers in column 3 of a file
+make -j8 fails intermittently, how do I debug race conditions in my build
+how do i squash my last 5 commits into one
+how do i handle newlines embedded inside csv cells
+explain why this nested query takes 40 seconds
+compare these two error messages do they share the same cause
+clean out stale remote branches that got deleted
+what's the deal with this in javascript, keep it short
+how do i squash the last 5 commits into one
+npm install works locally but fails in ci, any ideas
+how do i make this case insensitive in javascript vs python
+why is my string comparison failing when they look identical
+my class has two methods that are almost identical, how do I merge them
+can I put a virtualenv inside my project folder without committing it
+how do i run a ts file without compiling first
+explain how hashing works in two sentences
+how do I exec into a container that keeps restarting before I can attach
+what is memoization, keep it short
+how do I handle NULLs in a comparison without breaking the filter
+should this check for None or empty string, and why does my condition fail on both
+python json.loads fails on my file but the json looks valid, what gives
+clean up this ugly string formatting into f strings
+how do I make npm stop installing half my node_modules every time I switch branches
+quick one: what's the difference between put and patch
+how do I compare two tables and find missing or different rows
+grep with context lines around each match
+why is my rsync copying everything again instead of just changed files
+how do i stop a process that ignores kill -9
+how do i check if a value is a plain object and not an array or null
+whats the difference between restart and reload in systemctl
+accidentally did git reset --hard how do i get my code back
+how do i amend a commit that's already pushed
+why does my closure capture the loop variable wrong in these lambdas
+explain this traceback, is the real problem at the bottom
+write me a script that logs ss output every 5 seconds to a file
+why does my DELETE return 405 even though the route exists
+sort an array of objects by multiple keys descending
+how do I tell if a port is actually open on a remote host using dig or ss
+write a unit file for a node app that runs as a non-root user
+what does npm dedupe actually do
+translate this cryptic compiler error into plain english
+need a regex that splits on commas but not inside quoted fields
+translate this rust compiler error into something a human can understand
+git stash and forgot which one had my changes, how to list them
+whats the ss equivalent of netstat -tulpn again
+every small test I write needs tons of mocks, am I testing the wrong thing
+what's idempotency, two sentences max
+how to copy files preserving permissions and timestamps cp or rsync
+git stash list is a mess, how do i pop a specific stash without guessing
+how do i stop a process thats ignoring kill
+whats the correct way to daemonize a python script with systemd
+is it fine to write one small test now and add cases later or am I just procrastinating
+how do I escape quotes properly when writing csv manually in python
+how to pretty print a json file from the command line
+write a makefile target that runs npm build only when src files change
+my count distinct is way off, could nulls cause that
+translate this cryptic C++ template error for me
+how small is too small for a test, dont want 500 files
+why does ss show way more connections than my app thinks it has open
+npm audit found 500 vulnerabilities should i actually care
+why does my deepcopy not work on this object
+write a debounce function in typescript that keeps the generic type of the callback
+how do i fix a commit message after pushing
+how do i exclude multiple dirs from an rsync transfer
+how do i undo a git add without losing my changes
+how do I replay an exact request from a HAR file using curl
+explain this segmentation fault dump what should i look at first
+translate this cryptic Python traceback into plain english
+docker compose up fails with port already allocated, how do I find whats using it
+what's the tsconfig setting to allow importing json files
+delete lines matching a pattern across multiple files
+what does "immutable" actually mean, short answer
+how do i make ts-node stop complaining about decorators
+how do i symbolicate this crash log
+turn this into a context manager
+what headers do i need to set to avoid getting blocked by cloudflare
+npm scripts on windows break because of env var syntax, what's the workaround
+why is the top of the stack trace a library instead of my file
+what's the difference between := and = in a Makefile
+snippet to read and update a yaml file in node without losing comments
+why does my tiny test fail when the same code works fine in prod
+why does dig show a timeout but ping to the same host works
+why does iperf3 keep saying connection refused
+how do I get a full stack trace instead of just "error occurred
+why does my list comprehension return Nones
+why does my JOIN return more rows than the left table
+write a jq command that groups by a key and counts
+why does my container resolve localhost to itself instead of the host
+how do I interpret iperf3 jitter and loss numbers for udp tests
+help me get rid of these nested try blocks
+docker compose up fails with port already allocated how do I fix that
+curl returns the html error page instead of json, what header am i missing
+whats a quick way to count occurrences of each value in a csv column
+is it fine to have one assert per test or is that overkill
+jq filter for unique values of a nested field
+why does my case statement in order by not work
+how do i detect the delimiter in a csv that might be semicolon separated
+what's a singleton, explain fast
+how do i restart just one service in docker compose without touching the rest
+is there a way to make console.log show nested objects deeper
+regex to extract key value pairs from a log line with inconsistent spacing
+how do I see dns ttl remaining on a cached record
+write a query to compare two tables and show missing rows
+node_modules is 900mb, is there a legit way to slim this down
+can i move a commit from one branch to another
+recover a file I deleted and committed but never pushed
+write a regex that matches a valid email but doesn't choke on plus addressing
+why does my left join return fewer rows than the base table
+explain map vs foreach in two sentences
+how do i get the actual type of array elements instead of the array type
+convert this to a non-greedy match, it's eating too much
+find and delete empty directories in one go
+how do I pretty print a JSON response from curl
+find which commit broke the build with bisect
+how do i compare two tables and find rows only in one
+what does this stack trace even mean
+restore a file i deleted but never committed
+write a sql query to find duplicate emails in a users table
+regex to strip html comments but keep conditional comments intact
+how do I tell if a connection in ss output is actually dead vs just idle
+systemd timer with random delay so jobs don't all fire at once
+is there a shorter way to write this null check chain
+write a regex that matches a valid email but isn't crazy long like those rfc ones
+bind mount changes not showing up inside container what gives
+why is my pnpm monorepo hoisting the wrong react version
+why does my image keep saying "no space left on device" when disk has tons free
+how do i escape special characters when building regex from user input
+why is my container saying connection refused on localhost
+how do I get a core dump or at least better logs when my service dies
+need a regex for phone numbers that handles +country codes and dashes
+why is immutability such a big deal in react, quick answer
+how do i send a delete with a request body in curl without it complaining
+make says circular dependency dropped, how do I find what's circular
+write a script that flattens nested json into dot notation key value pairs
+why does docker compose up say port already allocated
+how do i type an object where keys are dynamic strings but values are fixed
+why does ss show way fewer sockets than netstat did, am I missing a flag
+why is my gitignore not ignoring files
+why is my find -exec slower than xargs
+why does my update with subquery update the wrong rows
+what does "Caused by" mean in a nested exception
+why does my process show as defunct and how do i get rid of it
+why does my jq command return null when i know the key exists
+write a curl command for a POST with json body and bearer token
+container says permission denied writing to a mounted volume, how do I fix this
+clean up this repetitive if elif chain
+how do i write a quick sanity check that my api endpoint responds 200
+write me a Makefile that rebuilds only changed .c files, incremental
+how do I fix a merge conflict I messed up halfway through
+how do i make this regex faster, it's catastrophic backtracking on long inputs
+accidentally pushed secrets to github, how do I scrub them from history
+how do I fix merge conflicts without understanding any of them
+how do I make npm stop reinstalling everything every time I touch package-lock.json
+convert this dict of dicts into a dataclass, keep backwards compat
+replace newlines with commas in a file using sed or tr
+should a small test case document itself or do i still need comments
+how do I read a java stack trace bottom up or top down
+convert this dict lookup chain to use get() so i stop getting KeyErrors
+how many assertions should one small test have, is one enough
+how do i handle csv rows where some fields are just empty strings
+xargs with parallel execution, how do I limit it to 4 jobs
+why does \\d not match some unicode digits I'm seeing
+is there a way to test a cron schedule without waiting around for it
+docker daemon wont start on ubuntu, where do I even look
+is there a curl flag to follow redirects and also keep the original headers
+why does my ts-node script randomly ignore the tsconfig paths
+why does my timer keep firing even though i disabled the service
+how do i run a cron job as a different user
+why is the error pointing to line 42 when the actual bug is somewhere else
+what's a race condition vs deadlock, two sentences
+jq select where a nested field equals something, whats the syntax again
+how do I export a venv to a teammate without committing the whole folder
+why does dig show two ips for one hostname sometimes
+sed in-place edit without leaving a backup file on macOS
+search and replace across files with find exec grep sed, whats the cleanest way
+how do I debug a dockerfile that hangs forever on one step
+netstat is deprecated right, what's the exact ss equivalent of netstat -tulpen
+how do I see the full request headers curl is actually sending
+fix slow docker builds, layers seem to re run every time
+why does ss show recv-q > 0 on a listening socket
+regex to capture the last occurrence of a pattern in a line
+how do I make my errors include more context so future me can debug them
+what's the difference between pip install -e and a normal install
+write me a query to find duplicate emails in a users table
+write me the commands to squash my last five commits
+xargs with parallel execution, like run 4 commands at once
+what does "every derived table must have its own alias" actually mean
+explain async await without the fluff
+write a quick script to hit an endpoint every 5 seconds and log failures
+what does the *: mean in ss output instead of a normal port number
+git checkout vs git switch which should i use
+why is my containerized app not seeing env vars i set in compose
+difference between curl -L and following redirects manually?
+how do I completely wipe all images containers and volumes to start fresh
+why does dig show SERVFAIL only from inside the k8s cluster
+is testing private methods ever ok if the behavior is tiny
+git push --force by accident, how screwed am i and can i fix it
+whats the deal with WantedBy=multi-user.target vs graphical.target
+why does my generator work once then return nothing on second use
+my commonjs require of an esm package fails, whats the workaround
+why does sorted put None before everything and crash
+docker compose containers can't talk to each other by service name
+best way to run something after an async forEach finishes
+why is node_modules 800mb
+explain this segfault backtrace, i've never debugged c before
+xargs parallel gzip all the log files in this directory
+why does find with -name and *.txt not match anything
+how do i test file reading without an actual file
+difference between pkill and killall, which should I use in scripts
+how do I find the root cause when the error message is useless
+how to compare two arrays ignoring order in js
+find files bigger than 50mb sorted by size
+tar exclude multiple directories in one command
+how do I inspect what headers my browser sends so I can replicate in curl
+is one test per branch of an if statement the right granularity
+how do i keep my test data inline instead of loading fixtures everywhere
+systemd service says active running but app isn't actually serving, why
+how do I inspect what headers my HTTP client is really sending
+how do I tell if a socket is in TIME_WAIT and if its a problem
+how do i get the type of values inside an object const
+write a super short test for validating an email format
+why is my shallow copy still sharing state with the original
+write a query to get the second highest salary per department
+how do I read minified stack traces from production
+why does my csv date column come out as weird numbers in excel
+why is iperf3 upload speed fine but download is garbage
+give me a two sentence explanation of dependency injection
+my lookahead works in regex101 but fails in python, what gives
+my regex with lookahead passes tests but breaks in prod, how do I debug this
+fix this off by one error in my range loop
+copy files preserving permissions and symlinks, rsync flags I need
+what's the difference between ts-node and tsx, which should i use now
+whats the point of testing a one-liner function
+how do i catch unhandled promise rejections in express
+why does my image keep getting rebuilt when nothing changed
+quick — what's the difference between process and thread
+how to get the type of an array element in typescript
+how do I mock a database call in a small test
+read this error and tell me the most likely cause before i start debugging
+why is 0.1 + 0.2 not 0.3, two sentences
+help me split this 200 line function into smaller ones
+my teammate's node_modules works but mine breaks, is deleting it actually a fix
+write a find command that locates all files over 100MB
+whats the difference between greedy and lazy matching again
+this error message makes no sense can you translate it
+why does my containerized app resolve hostnames fine locally but not in k8s
+why does my api hang for 30 seconds then timeout
+whats the difference between is and == here, why is my check failing
+what does connection reset by peer mean when calling my API locally
+help me convert this callback thing to async await
+explain what this regex does: ^(?:[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*)$
+force push without destroying my teammate's commits
+refactor this to use dataclasses instead of a dict with string keys
+why do people say keep tests small, mine always end up huge
+why does my request hang forever instead of timing out
+recover a deleted branch that was never merged
+service keeps getting oom killed, how do i raise the memory limit
+tar a directory excluding some subfolders
+my patch request returns 405, is the endpoint just not supported
+jq filter to find duplicate values in an array
+why is my except clause swallowing the actual error
+how do I stop npm from auto-generating a lockfile mismatch in CI
+is it better to use a systemd timer or cron for scheduled jobs
+give me a unit file that runs a docker container and starts on boot
+can I run iperf3 in reverse mode to test download vs upload
+this regex is unreadable, simplify it
+explain idempotency in two sentences
+dig MX record syntax, keep forgetting the order of arguments
+write a systemd unit file that runs a docker container with env vars
+how do I find slow queries in MySQL logs
+package-lock.json has a huge conflict, how do i regenerate it safely
+regex for extracting all urls from text, including ones without http
+this lambda works but is ugly, rewrite it properly
+my container works locally but fails in k8s with crashloopbackoff, where do i start
+how do i stream parse a huge json file without loading it all into memory
+write a jq filter to merge two json files on a shared id field
+this try except is swallowing everything, how should i scope it
+how do i run a single test file with vitest from the cli
+why does compose recreate my containers every time I run up
+write a bash loop that hits an endpoint and logs status codes
+my group by query returns one row, expected many, what am I missing
+why does my loop skip the last element
+my query is stuck running for 10 minutes, how do I kill it
+how do I watch for new connections live, netstat -c equivalent in ss
+container oom killed but the app barely uses memory inside
+what's the fastest way to scaffold a bunch of small test cases from a list of requirements
+whats the smallest possible test i can write to check this returns the right thing
+how do i see logs for a systemd service that keeps dying
+iperf3 server refuses connection, firewall looks open, what else should I check
+python read json with duplicate keys, it just overwrites them, any fix
+python script to merge multiple csv files into one
+why did the error only show up in production not locally
+snippet for grouping an array of objects by a key
+read a huge jsonl file line by line and extract one field
+why am I getting 401 even though my token is definitely not expired
+how do i test a function that returns a promise that rejects
+how do I find the commit where I deleted a file and restore it
+why cant containers on the same bridge network see each other by hostname
+how do i list outdated npm packages and update them
+undo git pull that messed up my working tree
+whats the difference between ?? and || again
+convert this grep pattern to work in golang's regexp package
+why is my container restarting in a loop
+whats the syntax to update a nested key in place with jq
+how do i get back a file i deleted and committed two days ago
+explain crlf vs lf in two sentences so i stop breaking things
+how do I delete rows from one table based on matching rows in another
+rewrite this with match statement
+does ORDER BY inside a subquery do anything or is it ignored
+i committed with the wrong email, can i rewrite the author on past commits
+regex for matching balanced parentheses, or do I really need a parser
+read this log output and tell me where the actual failure happened
+tar command that excludes a folder but keeps the rest of the structure
+what's cidr notation in two sentences
+why is the error in a library file instead of my code
+match a string that contains a word but NOT another word
+difference between CMD and ENTRYPOINT I keep messing this up
+write a curl command with basic auth and a custom user agent
+what does this stack trace actually mean, which frame should I look at first
+write a script that merges multiple json files into one array
+netstat says address already in use but nothing is listening, whats going on
+can iperf3 test both directions at once or do I need two runs
+dig +short vs dig without it, which should I use in scripts
+is there a way to run iperf3 without installing a server on the other end
+why does my csv parsing break on utf-8 bom characters
+how do I run docker without sudo without opening up security holes
+quickest way to convert json array to csv from the command line
+why do people say monoliths are bad, quick answer
+why does my csv reader skip blank rows
+npm install keeps hanging at idealTree, is my lockfile corrupted
+how do i get back a file i deleted several commits ago
+explain css specificity in two sentences max
+two sentences on what a closure is
+what's the difference between ExecStart and ExecStartPre
+why is this lambda returning a list of None
+how come the error message doesn't match what I see
+pip resolved a version conflict silently and broke everything can i see what it actually did
+how do i flatten nested json into a flat dict in python
+should small tests share fixtures or each build their own setup
+explain sql normalization in two sentences
+find delete empty directories recursively
+why is process.exit killing my pending stdout writes
+jq how do i select entries where a nested field is not null
+why does async forEach not wait for anything
+why does npm warn about peer dependencies, should I care
+how do i name small tests without essays for names
+dig vs nslookup vs host, which one should I actually be using
+what's the event loop, two sentences max
+how do i delay my service until network is actually up
+difference between \s and [ \t\r\n], which should i use
+why does the error mention a file I never touched
+how do i write a tiny test case for a function that just returns a string
+explain CAP theorem in two sentences please
+why does my test keep failing intermittently when the code works fine
+how do i use the error message to find the actual failing function
+what does the ?: mean in my regex group
+why is my systemd service showing active but the process isn't actually running
+cron sends me mail for every job, how do I silence that
+give me a small test case for retry logic without waiting real seconds
+how do I send a request to localhost over http from inside a container
+sed in-place edit is adding a weird backup extension on my mac why
+dig returns SERVFAIL but nslookup works, what gives
+my generator works once then returns nothing, why
+whats wrong with this GROUP BY, it says column must appear in the group by clause
+rename these variables to snake_case and update all references
+how do i gracefully stop a service instead of just killing it
+write a dockerfile that doesnt end up 2GB
+how do i find and kill a process listening on a specific port
+how do I test a webhook endpoint locally without deploying anything
+how do I write a small test case for this function without mocking half the app
+whats a non capturing group and when should i actually use one
+what does this execution plan actually mean by seq scan
+why does my float comparison = 10.5 fail when the value looks the same
+why does jq return null when i know the key exists
+grep but only show the filename and line number not the content
+docker login works but push says denied repository does not exist
+why is my cron job not running, /var/log/syslog shows nothing
+how do i write a quick test for this one function without setting up a whole test suite
+why does dig return no answer but the site still loads
+how to run a script on preinstall without breaking npm ci
+getting no space left on device, docker ate my disk again, how to fix
+how to merge two json files with jq keeping nested keys
+how do i make my regex case insensitive, flags or inline
+dig returns no answer but the domain works in the browser, what gives
+explain big o notation in two sentences, no fluff
+write a typescript utility to pick multiple keys from an object
+what's a clean way to handle errors in an express async handler
+whats a monad, two sentences max
+how small is too small for a test case
+how do I run iperf3 between two boxes that only have ssh access
+jq update a field in place across a file and save it back
+rsync only copy files newer than a specific date
+how do I delete a virtualenv properly, just rm -rf it?
+my union is throwing a datatype mismatch, how do i figure out which column
+python csv writer keeps adding blank rows between every line, why
+how do i freeze a venv properly so teammates get the same packages
+how to sort a json array by a nested timestamp field using jq
+pipe grep output to xargs and rm those files
+requirements.txt vs pyproject.toml vs setup.py someone just tell me what to use
+how do i exit a node script with an error code properly
+how do i see the last exit status of a failed systemd unit
+why does pip resolve a different version when I install packages one at a time
+why does ts complain about my generic constraint but js runs fine
+whats the tsconfig setting to allow importing json files
+explain idempotency like im dumb, two sentences max
+how do i get top n rows per group
+why does xargs break on filenames with spaces
+how to ssh into a running container and poke around
+how do I get back to a clean working directory without losing anything
+this generator gets exhausted after one pass, how do I keep it reusable
+why is my iperf3 speed way lower than the link rating
+csv rows have inconsistent column counts, how do i find the bad lines
+why does jq give me an error when i pipe a json file with multiple objects in it
+why does my async function return a promise instead of the value
+how do i get cron to log its output somewhere i can actually read
+how do I unstage a file I accidentally added
+whats the difference between Restart=always and Restart=on-failure
+is there a way to run make targets in parallel without race conditions on shared outputs
+how do I keep my tests fast when they keep piling up
+write a one-liner with ss to list listening ports with the process that owns them
+ss -s says X estab but I only see a few in ss -t, where's the rest
+I did git reset --hard and lost my work, can I get it back
+replace these string concatenations with f-strings
+regex to strip all html tags from a string, safe to use or no
+npm scripts can't cd into a subdirectory on windows, what's the workaround
+how do I tar a directory excluding .git and exclude multiple patterns
+why does make say "nothing to be done" when I changed a file
+how do I check if an endpoint is slow because of dns or the server
+pip install fails with permission errors, how do people usually deal with this
+sql query works in mysql but not postgres, why
+crontab syntax for last day of the month, keeps confusing me
+how to get the latest record per user efficiently
+jq select where field is not null and not empty
+why does my top-level await crash in a commonjs package
+give me a retry helper with exponential backoff and jitter
+sed delete lines matching a pattern
+entrypoint script hangs and I can't ctrl-c out of docker compose up
+replace these if elif chains with a match statement
+how do i list all enabled services sorted by startup time
+undo last 2 commits without losing the code
+why does docker compose ignore changes to my dockerfile
+whats the difference between kill, pkill, and killall
+why do people say one assert per test, that seems wasteful
+what does a debounce do, two sentences max
+jq filter to get all values of a key that appears at different nesting levels
+show me the difference between ss -s and ss -t state established
+how do I stop make from rebuilding when only a comment changed in the source
+how do i see what ports a container actually has open
+how do i undo git add on just one file
+how do I parallelize make targets without things stepping on each other
+how do i check if a cron daemon is even running on this box
+how do i debug a catastrophic backtracking issue, my regex hangs on long input
+is there a way to test this logic without creating all these fixture files
+how do I get pip to stop complaining about pep 668 externally managed environment
+write a rate limiter for axios requests in node
+why does sed -i work differently on macos, it demands a backup suffix
+sed replace text in place across a bunch of files without breaking them
+how do I make npm install skip optional dependencies that keep failing on CI
+why is my stack trace showing node_modules internals instead of my code
+how do I select rows where a JSON column contains a specific key
+what's the least painful way to migrate a webpack babel setup to vite
+one-liner to tar a directory excluding node_modules
+jq filter to get the first element of an array only if the array isn't empty
+what does 405 method not allowed mean when I'm definitely doing a DELETE
+fix this off by one error in my loop
+how do i count lines matching a pattern across multiple files
+what's the difference between ss and netstat again, should I just stop using netstat?
+awk to filter rows where column 3 is greater than 100
+make variable expansion is confusing, when do i use $$ vs $
+how do I see what a stopped container printed to stdout before it died
+whats the cleanest way to check for none vs empty string here
+why is my lookbehind throwing an error in javascript but not in python
+is this stack trace truncated, how do I get the full thing
+what's the difference between 401 and 403 again
+why does systemd kill my background process when i log out
+why is \b not working at the end of my match
+how do i pin an exact version in package.json not the caret range
+tsconfig paths work in dev but break after tsc build, what's the fix
+why does git say my branch is ahead by weird commits after a rebase
+how do i extract nested arrays with jq and flatten them
+dig MX query returns nothing but the mail works, is DNS lying to me
+jq command to pretty print only the first element of an array
+explain rest api in two sentences
+how do I upgrade everything inside a virtualenv safely
+jq filter that selects objects where a field is not null
+how do i see logs from a container that already crashed
+how do I see which process is holding port 8080 with ss
+typescript keeps yelling about node builtins, what import do i need
+why does my error point to a line that looks fine
+cherry-pick keeps giving me conflicts, am i using it wrong
+write a minimal unit test for this string parser
+can i write one test that loops over multiple inputs instead of separate tests
+explain event loop like i'm tired, two sentences only
+why is my index not being used, EXPLAIN shows a full table scan
+how do i delete node_modules and lockfile to start fresh
+how small is too small for a test, like should I test getters
+what's the point of an abstract class, two sentences
+jq delete a key from every object in an array
+how do I clean up all these dang anonymous volumes piling up
+how do I update one specific dependency without npm touching everything else
+how do i convert this loop to a dict comprehension
+why do minified stack traces show useless line numbers
+explain virtual dom in two sentences
+how do i delete a remote branch i already pushed
+why does my container see old code even after rebuild
+can you write a minimal jest test for this function
+journalctl keeps old logs forever, how do i limit disk usage
+what's the difference between let and const again
+how do I clean up all the dangling images eating my disk
+node fs readFile vs readFileSync in a serverless function which one
+write a curl request with a custom header and query params
+how do I use jq to delete a key from every object in a json array
+whats the right iperf3 flags to test with multiple parallel streams
+whats the fastest way to set up a venv and activate it in one command
+why does my regex catastrophic backtrack on longer inputs
+netstat -an | grep ESTABLISHED gives me way too much output, how do I filter by port
+explain this goroutine panic stack trace for me
+why does make rebuild everything even when nothing changed
+how do I copy a file out of a running container
+rsync dry run flag to preview before actually syncing
+how do I generate random test data that's still deterministic
+how do i undo a merge that already got pushed
+whats causing the deadlock in this transaction
+what does this typescript error about implicit any actually want from me
+explain why this correlated subquery is so slow
+need a one liner to remove duplicates from an array of objects by id
+what does the Recv-Q column in ss -l actually mean for a listening socket
+how do i write a minimal reproducible test for a bug someone reported
+write a make target that activates the venv and runs tests
+what's the point of -v vs -vv
+two sentences on what big o actually means
+extract all values for a key at any nesting depth with jq recursive
+whats the difference between these two errors are they the same root cause
+what's a race condition, two sentences
+fix this Makefile, tabs vs spaces keeps breaking it
+how do I see which files npm install actually put where
+package-lock.json conflict in git, what's the safe way to resolve it
+how do I make curl show me the request it's actually sending
+write a minimal pytest case for this function, no fancy fixtures
+why is docker build cache not working, it rebuilds everything every time
+how do i view what i changed before committing
+make this function return a generator instead of building a huge list
+how do i get types from a package that only ships javascript
+whats the difference between stop and disable for a service
+what's the difference between iperf3 -R and just swapping client/server
+why does `sorted()` work but `.sort()` gives me None
+is there a way to get type hints for env vars without extra deps
+how do I check if an endpoint is rate limiting me from the response headers
+how do I make pip install into a virtualenv without activating it first
+what's the difference between venv and virtualenv in 2024, which should I use
+how do I find rows in table A that dont exist in table B
+why does systemctl start hang forever on my service
+how do I mock a slow api response to test my client timeouts
+how do I uninstall a package and all its dependencies with pip
+how do i force remove a stuck container that says it's in use
+how do I symbolicate this minified production stack trace
+dig to a specific dns server, how do I point it at 8.8.8.8
+explain this null pointer exception trace step by step
+how do I inspect the actual env vars inside a running container
+run a command on each file find returns, pipes arent working
+getting "column is ambiguous" error on my join, what does that mean
+docker compose up fails with port already in use but nothing is listening fix
+make dependency order seems random, how do I force sequential execution
+jq expression to pretty print but sort keys alphabetically
+this traceback makes no sense, help me decode it
+why does this f-string print the literal braces
+how do I check DNS resolution timing, is there a dig flag for query latency
+fix the mutable default argument bug in this function
+find files modified in the last hour
+git push --force overwrote my teammate's commits how do i get them back
+how to rebuild just one service in compose without nuking everything
+npm ci vs npm install, when do I use which
+why do people say everything in js is an object, two sentence answer
+why does my left join return fewer rows than the left table
+sniffing out circular imports, any quick trick
+why does .* skip newlines and how do i fix it
+how to unstage a file without losing my changes
+what's the difference between -d and --data-binary in curl
+xargs complains about spaces in filenames, whats the fix
+how do i delete a remote tag i pushed by mistake
+why is my order by putting 10 before 2
+what does pure function mean, two sentences, skip the examples
+dig returns an answer but ping says unknown host, what's going on with resolution
+why does my interceptor double every request
+how do I show only ipv4 listeners with ss, I keep getting v6 duplicates
+my csv has weird encoding and shows â€™ everywhere, how do i fix that
+how do I make curl ignore cert errors just for local testing
+why does my stack trace just say "anonymous
+explain big O in two sentences, no math please
+explain what a deadlock is in two sentences
+how do i make jq output actual newlines instead of literal \n in strings
+what is a "first chance exception" and should I care
+how to compare two tables and find rows only in one
+what's the difference between an error and a warning in this log
+what does immutability actually buy me
+write a jq filter that groups objects by a field and counts them
+why is my venv huge, can I relocate it without breaking everything
+my working tree has changes I want to throw away completely, safest command
+why does immutability matter, keep it to two sentences
+how do I make pip stop reinstalling the whole world for one tiny change
+how do i undo a push that already went to origin
+how do i keep test setup from ballooning into its own app
+how do I handle divide by zero in a computed column
+should my test names describe behavior or method names, and how do I write them
+my index exists but the query still does a full table scan, why
+node 20 what does the --watch flag actually do
+what's a dead lock, two sentences please
+how do I find duplicate filenames across subdirectories
+my csv has weird encoding issues, utf-8 not working, what now
+merge two json files and dedupe by id using jq
+why does my test suite take forever even though each test is tiny
+my image is 2gb, how do i figure out what's making it huge
+how do i follow redirects in curl and keep the post body
+merge went wrong halfway how do i abort it cleanly
+why does my venv break after i upgraded python versions
+this error makes no sense, what's it really complaining about
+how do i gracefully stop a systemd service instead of killing it
+difference between -d and --data-binary in curl
+how do i see active queries running right now in sql server
+why is node_modules 900mb, is there a way to trim this down
+how do i auto restart a crashed process without systemd, just a shell script
+how many assertions per test is too many
+is it bad practice to test multiple things in one small test
+how do I escape special characters in user input before building a regex
+grep only filenames that match, not the lines themselves
+what does status NOERROR but empty answer section mean in dig output
+awk print second column but skip the header line
+how do i list all failed units
+why does my Authorization header disappear in the browser but not in curl
+regex to parse a url into protocol, host, path and query params
+npm scripts on windows keeps dying on the PATH stuff, whats the workaround
+how do I debug a 502 from a load balancer in front of my service
+why does journald rotate my logs so fast and can i keep them longer
+write a docker compose healthcheck that actually works for postgres
+why is my json.parse failing on a file that looks valid
+why is my node_modules folder 800MB, help
+accidentally committed node_modules, how do i remove it from the repo history
+my except clause swallows the error, how do i re-raise it properly
+rsync over ssh with a non standard port what's the syntax
+write a quick unit test for this function that checks the happy path and one edge case
+difference between docker stop and docker kill, does stop risk data loss
+how do I log all requests between my app and a third party API
+can i use regex to validate a json string before parsing
+snippet to deep merge two json objects but keep arrays as-is
+regex for phone numbers with optional country code
+why does my useEffect cleanup run on every render even with empty deps
+should i test private methods with small cases or leave those alone
+how can I tell if a connection in ss output is ipv4 or ipv6
+what's the regex for a string that does NOT contain a substring
+container works locally but dies in k8s with crashloopbackoff, where do I even start
+explain mutex vs semaphore in two sentences
+difference between ?: and ?= in regex, keep confusing them
+how do I send form data vs JSON in curl without messing it up
+should I test private methods or just the public API
+how do i squash my last 5 commits into one with a new message
+whats the cleanest way to test if a string matches in go
+how do i know when my test coverage is good enough
+xargs vs exec in find, which one and why
+my group by keeps erroring saying column must appear in group by clause, whats the fix
+whats the difference between git revert and git reset again
+dig returns no answer but the domain definitely works in browser, what am I missing
+how do I debug a webhook that never seems to arrive at my server
+whats the cleanest way to update all dependencies in package.json safely
+why is my while loop never terminating, cant spot the bug
+i pushed a huge file how do i remove it from history
+my dict iteration changed order after upgrading python, whats going on
+rsync over ssh with a custom port, syntax keeps failing
+explain heap vs stack memory in two sentences
+dig returning stale record, how do I query the authoritative server directly
+why does setting a cookie in curl not persist to the next request
+why do people say keep tests small, mine are huge
+undo my last commit but keep the changes locally
+explain this error like i have no idea what null pointer means
+how do I pivot rows into columns without a pivot function
+explain this kotlin "lateinit property has not been initialized" crash
+xargs with parallel execution, whats the syntax again
+why does dig show different IPs every time I run it
+how do i split this 300 line function into smaller ones without breaking stuff
+why does my test fail when the function works fine locally
+set up a timer instead of cron for a daily backup script
+how do i attach to a container and see stdout in real time
+how do i write a tiny test for a single function without setting up a whole framework
+why is my count returning 0 but rows clearly exist
+explain sql vs nosql in two sentences
+why is my json parser choking on trailing commas
+why does make say "nothing to be done for all" even though I edited the source files
+git stash popped on the wrong branch can i undo that
+my service needs a network to be up first, which target should i require
+why does the API return JSON when I curl it but HTML in the browser
+awk print only the second column of this csv
+how do i make git stop tracking a file without deleting it locally
+what's a hash collision, two sentences
+whats the deal with Requires vs Wants vs BindsTo in unit files
+why does ss show a SYN-RECV that's been sitting there for minutes
+find and chmod only directories not files recursively
+dig SOA vs NS what's the actual difference
+help me rewrite this cursor as a set based query
+give me a one-liner to remove duplicates from an array of strings
+why does my cron job run fine manually but never fires from crontab
+why does my curl request work but the same thing in my JS code gives CORS error
+how do i see what changed in a commit
+translate this cryptic JVM error into plain english
+fix the off by one in this slice, i keep losing the last element
+container says permission denied when writing to mounted volume, what do i fix
+iperf3 keeps saying port already in use on the server how do I fix that
+eslint not linting my .ts files in vscode anymore, why
+why does make keep saying "nothing to be done" when i changed a file
+write a script to split one csv into multiple files by value in first column
+how do I test an endpoint that needs a bearer token that expires every 5 minutes
+convert this grep pattern to work in python re
+what does this stack trace actually mean
+read tsv and convert to json preserving types, not everything as strings
+jq command to update one key in a json file in place
+show me how to auto-activate a venv when i cd into a project
+make this handle empty input without crashing
+write a retry helper with exponential backoff for fetch calls
+fix this off-by-one in my range loop
+how do I decode this minified production stack trace
+my rebase went sideways how do i abort it
+how do I debug a query thats timing out on prod
+whats the best way to paginate without offset
+why do people say arrange act assert, does it actually matter
+my docker build gets stuck on apt-get update forever
+can I test UDP bandwidth with iperf3 and how do I read the jitter output
+how small is too small for a unit test
+whats the best way to share npm scripts between projects
+grep but only list filenames, no line output
+give me a minimal pytest example for testing a REST endpoint
+how do I check if an API is rate limiting me before I get a 429
+how do I get dig to show the full dnssec chain
+git reset hard vs soft whats the difference again
+this typescript error mentions covariance, what is it actually complaining about
+how do I see the logs of a crashed container that already stopped
+can i put all my tiny tests in one file or is that bad practice
+why is my app in docker slower than running it locally
+what's the cleanest way to daemonize a python script
+how do I make a virtualenv with a specific python version
+what is a pure function, two sentences
+revert vs reset, when do i actually use which
+best way to dedupe rows in a csv by one column
+how do i find the commit where i broke something
+how do i make this n+1 query situation into one query
+how do i write a minimal test case for this function without mocking half the app
+give me a make target that cleans build artifacts and node_modules together
+convert these camelCase vars to snake_case
+whats the deal with crontab -e vs /etc/crontab
+how do I debug a slow query in postgres
+extract all values of a key at unknown depth in json, jq or python
+someone said my code is not thread safe, what does that mean, two sentences
+connection resets randomly after ~60s, is that keep-alive timing out
+what does this golang panic message mean
+what's this "segfault at 0x0" telling me
+how do I decode this chunked transfer encoding response that looks garbled
+my branch says diverged from origin and i don't understand why
+i amended a commit after pushing now push is rejected what do i do
+should test data live in the test file or a separate fixtures folder
+explain what this does: ^(?:[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*)$
+virtualenv vs venv vs pyenv, which one should I actually use in 2024
+why does this default argument keep accumulating values between calls
+whats a good starting test for legacy code with zero coverage
+docker compose up fails with port already allocated but nothing is listening
+left join dropping rows it shouldnt, whats wrong
+how do I list only listening UDP sockets with ss
+what's a race condition in two sentences
+how do i see what a service's exit code was when it died
+what is event loop in node, keep it to 2 sentences
+whats the difference between git revert and git reset
+explain eventual consistency in two sentences please, been staring at this too long
+whats the difference between greedy and lazy matching, when do I actually need lazy
+merge these two nearly identical functions into one
+why does sorted work but sort gives me None
+why does crontab -e complain about bad minute field
+how to strip all undefined values from an object recursively
+delete all empty directories recursively
+can iperf3 do parallel streams and does that actually help throughput
+give me a typescript util type that picks keys matching a value type
+how do I pivot rows into columns without writing 50 case statements
+netstat -tulpn equivalent using ss, whats the exact flag combo
+whats the pythonic way to check if a string is empty
+why does make run my clean target when I just type make
+rsync dry run flag is which one again, want to see what would transfer
+node says cannot find module but the file is right there, what gives
+what does this weird Golang panic trace mean
+where does this error originate, walk me through the frames
+how do I send a file upload with extra fields in one curl command
+write a recursive cte for org chart hierarchy
+jq query to group by a key and count occurrences
+awk print lines where field 3 equals some specific value
+explain what a hash table is in two sentences
+why is my regex matching greedy when I want the shortest match
+what's a closure in js, two sentences max
+how do I see the actual execution plan for this query
+convert a callback-based function to async/await without rewriting the whole thing
+explain this error like I'm five
+how do I get a shell into a container that keeps restarting
+give me a two sentence explanation of what docker actually is
+why does jq complain about "parse error" on my json file when it looks fine
+how do I tell which frame in the stack trace is my code vs library code
+why is my esbuild bundle bigger than the source code
+match a json string value including escaped quotes
+write a make target that runs my tests only if source files changed
+why does docker compose keep recreating my containers when I didnt change anything
+my docker build is super slow, how do i cache layers properly
+how do I send a request with a cookie from a file using curl
+node 20 fetch says undici error, what causes that
+how do i debug a regex that matches too much, greedy vs lazy explain like im five
+whats the difference between grep -r and grep -R
+should package-lock.json be committed, my coworker says no and I want proof
+why is recursion sometimes slower than iteration, short answer
+my UPDATE with a subquery is timing out, how do I fix it
+why does re.match only match the start of the string
+whats the safest way to undo a merge commit
+python script to validate every json file in a directory and report the broken ones
+why is my process stuck in uninterruptible sleep and can i kill it
+how do I see which process is holding a specific port with ss
+how do i make a timer run a service on a schedule instead of cron
+my UPDATE with a subquery is insanely slow, any way to speed it up
+how do i stop npm from auditing every damn install
+what signal does systemd send on stop and how do i change it
+whats the point of table driven tests for tiny functions
+why am I getting 403 when the same token works in Postman
+read csv where delimiter is a tab or semicolon, pandas keeps guessing wrong
+should small tests share setup or each one build its own fixtures
+why does my async code run out of order, two sentences
+what's a monad, two sentences, don't gatekeep
+is there a way to make npm install use a different registry just for one package
+why is the error swallowed and only showing up in the catch
+how do I pin a make variable to an environment variable with a default
+how do I ignore a failing command in a Makefile recipe and keep going
+iperf3 udp test reports insane jitter numbers, is that real or a config issue
+what does the m flag do vs s flag, i always mix them up
+explain this stack trace to me like i'm five, what actually went wrong here
+convert this camelCase to snake_case everywhere
+npm install fails with EACCES permission errors, how do people normally fix this
+node fs promisify or fs/promises, which one should i be using now
+can a regex validate nested structures like balanced parentheses or do I need a parser
+how do I find which process is holding port 8080 with ss
+my cron job runs but no output anywhere, where do logs even go
+how do i edit crontab for another user without switching to them
+how to escape special characters when building json manually in a script
+how do i check what's eating disk space in /var/lib/docker
+how do i merge two json files keeping only keys that exist in both
+what's the difference between let and const, keep it to two sentences
+tar command to extract just one folder from a huge archive
+what does stack trace depth tell me about where the bug is
+why does curl work but my fetch request fails with CORS
+explain event loop in two sentences
+difference between .*? and .* again, i always forget which is lazy
+why do people say microservices are distributed monoliths, short version
+whats wrong with my is vs == comparison here
+explain idempotency like i'm tired
+explain what reflog is and can it save me from a bad reset
+i committed to the wrong branch help
+how do i get out of a messed up virtualenv and start fresh
+ss -s summary shows X estab but my count differs, why
+this error says line 42 but nothing's wrong there, what gives
+how do i see what's in the stash without applying it
+why does my tiny test keep failing when the function works fine manually
+how do i push a local branch to a differently named remote branch
+my string formatting mixes f-strings and %, standardize it and explain edge cases
+explain what a pointer is, two sentences, no textbook stuff
+how do i run a node script with env vars from a .env file without dotenv
+i committed to main instead of a branch help
+detached head warning scared me did i lose my work
+container says permission denied writing to a mounted volume, how to fix
+convert this query to use a cte instead of nested subqueries
+difference between curl -d and -F flag
+why does pandas turn my csv numbers into floats and add trailing zeros
+how do i read a huge csv in python without loading the whole thing into memory
+how do I parse a csv with commas inside quoted fields in python
+restart a service only if the config file changed, is there a trick for that
+explain what this correlated subquery is doing
+write a pattern that matches duplicate words like "the the" in a sentence
+how do I see what scripts are available in a package.json
+sed delete all blank lines from a file in place
+write a Makefile that rebuilds only changed .c files
+why does my typeof check say string when it's actually null
+why does my service show as active but the process isnt actually running
+give me a two sentence explanation of how garbage collection works
+what's the lazy vs greedy quantifier difference in actual examples, the docs confuse me
+how do I check which make target will run without running it
+why does my regex hang on long strings with nested quantifiers
+pip refuses to install because of a broken system package, how do I force it
+how do i read a python traceback bottom-up or top-down
+my volume mount works on linux but breaks permissions on mac, help
+one-liner to count lines in all files matching a pattern
+is it ok to skip assertions on stuff im not testing right now
+why is my cron job not running at all, checked crontab -l and its there
+python csv writer is doubling up my quotes, why
+why is my request hanging forever, is there a way to set a timeout
+what's the difference between process and thread, two sentences
+why does my index not get used, EXPLAIN shows a full table scan
+how do I write a test for a function that calls another function
+write a pattern that matches urls but ignores query strings
+what's the cleanest way to test a regex against a bunch of sample strings
+is there a way to get netstat style output without netstat since its deprecated on newer distros
+rebase vs merge for pulling upstream changes, which causes less pain
+what does the virtual dom actually do in react
+why do I get three errors when only one thing broke
+ts complains about a possibly undefined even after i check it, why
+explain named capture groups and how to reference them in python
+fix this error: cannot connect to the docker daemon at unix:///var/run/docker.sock
+how do i set cpu and memory limits on a service so it cant eat the box
+why does the error point to a line that looks totally fine
+what's a clean regex for ISO 8601 dates with optional time component
+explain what this monster regex does line by line
+make this regex faster, it's matching fine but slow on big logs
+regex to strip html tags but keep the text
+my request works in postman but not curl, what am I missing
+convert this callback-based function to return a promise instead
+what's the fastest way to deep clone an object without a library
+regex to match a password with at least one number and one special char
+what's duck typing, 2 sentences
+how do i fix "no space left on device" when docker still says it has room
+delete a remote branch i already pushed by accident
+what does this stack trace actually mean, which frame is the real problem
+requirements.txt vs pyproject.toml vs setup.py, which am I supposed to use in 2025
+tar with compression which flag should i actually use gzip or bz2
+help me debug this "column is ambiguous" error
+this lambda is throwing NameError but works inline, why
+explain big O notation like I have 30 seconds
+how do i test error handling without making the test huge
+why does make recompile everything when I touch one file
+what does Type=forking actually mean and when do I need it
+what's the difference between rest and graphql, two sentences
+why does my jest mock reset between tests when i want it to persist
+how do i polyfill structuredClone in node 14
+rsync over ssh on a nonstandard port
+write a script that runs iperf3 every hour and logs results
+tar a directory excluding multiple patterns
+why does my tsconfig ignore my paths alias in tests
+why does curl work but my fetch call gets a CORS error
+sed replace text in place across every file in a dir, does it need -i.bak on mac
+how do i type a function that returns different types based on input
+what does 415 unsupported media type mean when I swear I set the header right
+iperf3 reverse mode vs normal mode which direction is which
+how do I check which virtualenv I'm in, my prompt isn't showing it
+convert csv to json without pandas
+what does tree shaking mean lol
+explain docker layers in two sentences, just the gist
+how do I pass a query param with an ampersand in it without breaking things
+help me match duplicate words in a sentence like "the the
+why does dig return different IPs every time I query the same domain
+how do i copy files out of a container that keeps dying
+my request works with http/1.1 but hangs on http/2, any ideas
+how do i list all running services with systemctl
+my stash disappeared did i lose my work forever
+why is 0.1 + 0.2 not 0.3 in floats, two sentences
+explain eventual consistency in two sentences
+rename a key in every object of a json file with jq
+explain mutex vs semaphore, keep it under two sentences
+should i bother writing a test for a two line function
+why does my script hang forever, i think the socket recv is blocking
+jq keeps reordering my keys, can i stop that
+cherry-pick gone wrong, how do I undo it
+write a query to find customers with no orders at all
+how do i see logs from a systemd service in real time
+where do crontab logs even go by default
+why does mysql ignore my index on this where clause
+need a regex for iso dates but also tolerate missing timezone
+explain the difference between process and thread in two sentences
+whats the difference between kill, kill -9 and pkill
+write a tiny test for a pure function with a few example inputs
+how do i get npm to use a private registry only for my org's packages
+is this stack trace bottom-up or top-down
+help me figure out which of these frames is the real problem
+whats the safest way to force push without destroying my team
+curl vs wget for hitting an API, does it matter which I use
+docker ps shows my container but I can't connect to the exposed port
+explain big O in exactly two sentences, no fluff
+is there a way to run an update with a join
+virtualenv vs python -m venv, which one should I actually use in 2025
+pip install fails behind my corporate proxy, what env vars do I need
+two sentences on what docker actually does
+explain promises vs async await in two sentences, im tired
+why does == say True but is says False
+why does git say my branch is ahead by 2 and behind by 3
+why does my test pass locally but fail in ci even though nothing changed
+this function does three things, split it up for me
+whats the point of useeffect cleanup function
+rsync dry run flag, can't remember if it's -n or something else
+whats the fastest way to dedupe rows in a big csv
+why is my compose depends_on not actually waiting for the db to be ready
+find files by extension then grep inside each one
+difference between docker restart policies, which one should I use in prod
+how to flatten nested json into csv columns with pandas
+how do I run make from a subdirectory and still use the top-level Makefile
+summarize what a race condition is in two sentences
+i accidentally committed to main how do i move that commit to a branch
+two sentences on how https handshake works
+rewrite this nested subquery using CTEs so it's readable
+this group by gives wrong counts, what am I missing
+what's the difference between iperf3 -R and just running the client on the other box
+what's the difference between package-lock.json and yarn.lock again
+why is my null check throwing, explain optionals briefly
+how do I handle NULLs in an equality comparison without getting nothing back
+why is my query so slow, is it the subquery or the index
+write a systemd unit file for a node app that runs on port 3000
+why is the container port not reachable even though I did -p 8080:80
+why is npm install so slow is there a cache i can clear
+what's the pythonic way to check if a string is empty here
+merge two json files on a shared key using jq
+what does "curl: (56) recv failure" actually mean
+what does a good minimal repro test look like for a null pointer bug
+how do I concatenate first and last name with a null last name
+best way to assert a thrown error type with vitest instead of instanceof
+decode this java stack trace for me
+write a quick unit test for this function that just checks the happy path
+how do i check if a string is a valid iso date without a library
+explain catastrophic backtracking and how to fix this pattern
+why does this list comprehension return None instead of a list
+explain this stack trace bottom-up for me
+iperf3 says permission denied on port 5201, what am I missing
+my transaction deadlocks occasionally, how do I figure out which query causes it
+how do i rename a branch locally and on remote
+write a debounce function in typescript that works with generic params
+write a checklist for debugging a stack trace i dont recognize
+explain what this python traceback is trying to tell me
+convert a tsv to json without losing the number types
+why does my cron job run fine manually but not from crontab
+how do I test a function that hits a database without spinning one up
+difference between netstat -n and -an flags, always mix them up
+i force pushed and overwrote someones commits, is there any way to recover them
+query was fast yesterday now its doing a seq scan whats going on
+set up a cron job that runs every 15 minutes except sundays
+what does HTTP 415 mean when my POST keeps getting rejected
+why does the stack trace show line numbers that don't match my source
+difference between dig A record query and dig +short, which should I use in scripts
+is this null pointer coming from the caller or inside this method
+why is my list comprehension returning empty but the loop version works
+node says event emitter memory leak, where do i even start looking
+whats the difference between a unit test and an integration test
+tar gz vs bz2, which flag is faster for big dirs
+convert this subquery to a join so it runs faster
+how do i bundle a typescript cli into a single executable file
+write a regex that matches a url with optional port and query string
+iperf3 keeps failing with connection refused on port 5201, what do I check
+why is jq outputting unicode as escaped sequences like \u00e9
+how do I read this minified javascript stack trace with no readable names
+can I use named capture groups and how do they differ across languages
+give me a one-liner test to verify this constant is what i think it is
+write me a timer unit that runs a script every 15 minutes
+why is my index not being used
+container keeps restarting in a loop, how do i debug the crash
+how do i loop through a csv file in python without pulling the whole thing into memory
+why does my DELETE request return 405 on this endpoint
+python one-liner to extract a column from csv and dedupe it
+how do i recover a deleted branch i never merged
+show me how to find which process is holding port 8080 with ss
+how do i get the type of array elements without importing the array itself
+explain the event loop briefly
+healthcheck keeps failing but curl works when I exec in
+how do I see the raw request curl is sending
+whats the modern way to do monorepo scripts without lerna
+i did git clean -fd and deleted files i needed can i get them back
+iperf3 single stream is slow, do I need -P for parallel streams
+git checkout detached my head what does that even mean
+pandas read_csv keeps inferring wrong dtypes, how do I force column types
+why does my mutable default arg bite me only sometimes in testing
+why is my query so slow, it's just a simple join on two tables
+what's a promise vs a callback, super short
+why does my jest mock work in one test file but leak into another
+how do i inline this pointless helper that just wraps a method call
+eslint keeps flagging unused vars in my catch blocks, how do i fix the rule
+how do I clean up node_modules across all my projects without finding them manually
+how do i schedule a cron job every 10 minutes
+how do I exec into a container that exits right away
+iperf3 server already running how do I kill it
+how do I follow redirects in curl AND see every hop
+how do i recover a branch i deleted with git branch -D
+why does strptime fail on dates with one digit month but the doc says it's fine
+why is my ts build emitting js files in the wrong directory
+why is my csv empty after writing it with the csv module
+explain idempotency like i have 5 brain cells left
+how do I tell which pip corresponds to which python interpreter
+how do I get the latest record per user without a window function
+why am I getting a null pointer when I checked for null
+why does ts-node complain about my esm imports
+need regex for password rules, min 8 chars one number one special
+need a regex for iso 8601 dates that also tolerates missing time parts
+whats a "callback hell" stack trace telling me
+how do I send a file upload with multipart form data via curl
+give me a snippet to group an array of objects by a key
+type that's an array of literal strings but errors on typos
+why is my sorted call ignoring my key function
+regex to strip all html tags except <p> and <br>
+xargs says argument list too long, what's the fix
+how do I stop all containers at once without listing them one by one
+write me a command to squash my last 5 commits
+does regex support recursion for nested parens or do I need a parser
+can someone explain why this union drops my duplicates
+is there a way to run an UPDATE safely first as a dry run
+match balanced parentheses without a parser is this even possible
+how do i inspect response headers only, not the body
+is there a way to match whole words but ignore case in java
+convert this to use pathlib instead of os
+how do I get iperf3 to test both directions at once
+best way to escape quotes when generating csv manually
+what does `ss -s` summary actually mean, what's a normal ratio of TCP vs UDP sockets
+whats the difference between After= and Requires= in a unit file
+why is my find -exec not working with rm
+best way to deep clone an object in node 18 without extra deps
+how do i follow redirects and still see each hop in curl
+why does my except not catch the KeyError i'm clearly raising
+what's the point of dependency injection, explain in two sentences
+how do I grep recursively but exclude node_modules
+why does count return 0 instead of null on empty groups
+how do I get make to print each command before running it
+how do I view whats inside a docker image without running it
+write a debounce function in typescript that returns proper generic types
+pip install -e . broke after I moved the project folder, why
+write a curl command that sends a POST with a JSON body and auth header
+write me a command to tail logs from all compose services at once
+what's the deal with promises vs async await
+iperf3 reverse mode vs bidirectional, whats the difference
+fix this regex, it's supposed to match kebab-case ids but misses trailing numbers
+regex to strip html tags from a string, safe enough for user input
+is there a bug here, the counter never increments
+how do I list all enabled services
+how do i know if this exception is swallowed somewhere up the stack
+write a test that checks the edge case of empty array input
+why is my post body empty on the server side
+why is jq saying invalid numeric literal when the json looks fine
+why does jq -r print true/false as strings sometimes but not others
+write a retry wrapper for fetch with exponential backoff in typescript
+give me a ts type for api responses that can be null or error
+write a one-liner to count lines in every .py file in a dir and show total
+is it ok to test multiple things in one test case or should i split them up
+what does Connection reset by peer actually mean when calling an api
+how do i escape quotes properly when writing csv output
+jq select where nested array contains a value
+how do i reset my local branch to match remote exactly
+ss output has all these state abbreviations, where's a cheat sheet
+rsync command that only copies files newer than last week
+how do i get better stack traces in production with minified code
+how to validate json schema quickly before processing
+how do i activate a virtualenv in a dockerfile without it breaking
+grep case insensitive and show line numbers at same time
+what does exit code 139 mean and how do i debug it
+write a one-liner to replace foo with bar in every .py file recursively
+how do I make a test fixture without overcomplicating things
+grep for a string in all .py files and show line numbers
+how do I dump all sockets with ss in json for parsing
+convert a nested json to a flat csv with python
+why does git say my branch is ahead by 3 but I see no changes
+write a debounce function in typescript that handles async calls
+why does my curl request work but the browser gives me CORS errors
+why does my POST keep returning 415 unsupported media type
+how do I read the Recv-Q and Send-Q columns in ss output
+why is git stash losing my changes when I pop
+how do I see timing info for a slow API call in curl
+tar a directory excluding subdirectories but keeping the structure
+this function mutates the list its given, how do i make it not do that
+how to split on commas but ignore commas inside quotes
+list files matching a pattern sorted by modification time newest first
+how do I write a lookahead to check a password has at least one uppercase and one number
+what does the p flag do, should I be using it
+give me a typescript type that omits keys starting with underscore
+my coworker writes huge tests covering everything at once, how do I convince him to go smaller
+sed command to replace text only on lines matching a pattern
+extract this duplicated logic into a helper function
+explain the difference between process and thread, two sentences
+how do I find the actual bug in a 200-line stack trace
+git stash pop gave me conflicts, what do i do now
+write a test for a react component that just renders text
+why does my package-lock.json have a million entries and conflict on merge every time
+whats the fastest way to test a pure function with no dependencies
+why does grep -r keep matching my node_modules, how do I exclude a directory
+how do i make npm stop reinstalling everything every time i switch branches
+how do i find the commit where a bug was introduced
+whats the difference between ss state established and just ss -t
+how do I make a tiny test for a function with side effects
+write a minimal pytest for a function returning None on empty input
+regex to match a whole word only, not when it appears inside another word
+what does this error message even mean, is it my fault or the library's
+how do i see what changed in a specific commit
+explain virtual DOM in two sentences, every article is a novel
+why am I getting NullPointerException when the variable isn't null
+whats the smallest possible test i can write for a pure function
+npm install takes forever, is there a way to see what's actually slow
+write me the commands to unstage everything without losing work
+how do I parameterize this query so I stop worrying about SQL injection
+write a debounce function in typescript that works with generics
+whats "at Module._compile" trying to tell me
+how do i recover a deleted branch
+how do i flatten a list of lists without numpy
+how do I get iperf3 to test UDP instead of TCP
+what's the cleanest way to test if a string is a valid hex color
+write a quick unit test that just checks the happy path for me
+compose networking why cant my services talk to each other by hostname
+turn this if/elif chain into a dict lookup
+need to split on commas but not ones inside quotes
+write a retry wrapper for fetch with exponential backoff
+make this try except retry less ugly
+can I have two virtualenvs with different python versions on the same machine
+what's the point of a reverse proxy, two sentences
+write a pattern that matches a word unless it's inside quotes
+write a jq command to extract the id field from every object in an array
+how do I get curl to show timing breakdown like dns lookup and tls handshake
+what does "cannot read properties of undefined (reading 'id')" mean
+explain dependency injection in two sentences or less
+how do I pin exact package versions in npm
+write a one-liner to count lines in csv excluding header
+i committed to main instead of a branch how do i move it
+how do i remove a file from the last commit without redoing everything
+why does sed need different escaping than grep
+whats a shorter way to swap these dict values
+journalctl keeps timing out on a busy box, faster way to grep logs
+fix this off by one error in my for loop range
+write a one-liner to find all .log files over 100mb and delete them
+why does my left join turn into an inner join when i filter in the where
+how do i list all running services sorted by memory usage
+why does rebase keep asking me to resolve the same conflict
+grep case insensitive across a whole project but exclude node_modules
+how do i undo a git add after staging everything
+container can't reach the internet but the host can, why
+why is this list comprehension returning None values
+what iperf3 flags should I use to simulate a slow lossy link
+what is a pure function, keep it quick
+how do i list all running timers and when they fire next
+why do people say keep tests small, mine are 40 lines each
+awk one-liner to print the second column of a csv
+why does my timer show active but the oncalendar schedule never triggers
+git checkout is ignoring my local changes, how do I force it
+help me write a table-driven test for this Go function
+how do i find which index is actually being used
+make: *** missing separator, what does that even mean
+how do I make make run jobs in parallel without it exploding
+why does my container restart instead of staying dead
+what does idempotent actually mean, keep it to two sentences
+what does ECONNRESET mean and where should i look first
+why does ts complain when i assign a string to a union type even though it matches
+why does my regex hang on longer inputs, is it catastrophic backtracking
+how do I dump both request and response headers from curl in one go
+why is my package-lock causing merge conflicts every time
+delete lines matching a pattern from a bunch of files with sed
+compose overrides my command from the dockerfile, why
+can I use an alias from select in the where clause
+pip install -r requirements.txt keeps failing on one hash, how do I find which package
+whats the cleanest way to extract one column from csv without pandas
+jq output as raw strings instead of quoted, what's the flag again
+why is my rsync dry run showing files that should already be synced
+why does my csv parsing break when the file has a bom at the start
+is it fine to write tests for private methods if theyre complicated
+how do i move a Makefile target's recipe into a separate script file
+how do I auto-activate a venv when I cd into a project directory
+how do I quickly test a regex without writing a whole test class
+how do I read the retransmits column in iperf3 output
+tar extract single file from archive without unpacking everything
+write a retry wrapper with exponential backoff for a flaky api in python
+how do I see socket memory usage with ss, saw someone do it once
+write a one-liner to find which process is hogging a port with ss
+why does my tiny test keep failing when the function works fine in the console
+why do people say one assert per test, seems annoying
+write a crontab entry that runs at 2am on the first sunday of every month
+how do I daemonize a script properly so it survives logout
+whats the difference between recv-q and send-q in ss output
+why does my container exit immediately after starting with code 137
+whats the difference between "caused by" and the top exception in this trace
+explain map vs foreach real quick
+how do i bundle a single typescript file to plain node-compatible esm
+tar command to extract a specific folder from a huge archive without extracting everything
+explain this error like im five
+write a test for error handling that doesn't actually hit the network
+difference between ss -s and ss -a
+how do I debug what's actually inside a container image layer by layer
+what's hoisting, seriously why does var do this
+why am I getting empty response body with a 200 status
+fix this query, syntax error near 'on' and I can't see it
+what's the difference between concurrency and parallelism, short answer
+why do people say keep tests small, mine covers like 5 things at once
+whats the smallest test i can write to check if a list is sorted
+jq to recursively search for a key name anywhere in the json tree
+should tiny helper functions even get their own tests
+is there a curl option to just show response body and nothing else
+i deleted files and committed how do i bring them back
+how do i test a function that depends on another function without mocking everything
+best way to dedupe lines in a csv keeping the header
+write me the command to undo a commit that's already pushed to main
+explain eventual consistency like i'm tired, keep it to 2 sentences
+why does my async function throw but the stack trace is useless
+how to count lines matching a pattern with grep
+why does map give me undefined holes when i use splice
+whats the difference between npm install and npm ci again
+explain recursion in two sentences like im five
+what does the After= directive actually guarantee vs Wants=
+dig returns no answer but ping works, what gives
+how do i sort this list of tuples by the second element descending
+why is my greedy match eating the whole string
+why does the stack trace show my framework files first
+explain dependency injection in two sentences
+run a quick bandwidth test between two docker containers with iperf3
+how do i send a multipart file upload from curl
+edit an existing systemd unit without making a drop-in, is that safe
+what does debounce mean, keep it short
+should each test have its own fixture or share one
+how do I tell if a connection is stuck or just slow using ss
+tar command to extract just one folder from an archive
+parse csv with python when delimiter appears inside quoted fields
+jq error "Cannot index string with" what does that even mean
+how do i match a string that does NOT contain a word
+how do i get the type of object keys in typescript
+whats the best structure for a test with only arrange and assert
+two sentences on why immutability helps with bugs
+what's the point of dependency injection, two sentences
+write a typescript function that retries with exponential backoff and respects AbortSignal
+combine find and grep to search inside .log files only
+give me a grep one-liner that searches recursively but skips .git folders
+whats the difference between make -j4 and just make
+is it bad practice to just console.log instead of writing an actual test
+what does the ?: actually do in (?:...) groups
+sed to delete blank lines from a file
+why is git asking me to set upstream every time i push a new branch
+my UPDATE with subquery is insanely slow, what am I doing wrong
+why does iperf3 give way lower throughput than my link rating
+what is idempotency, keep it to 2 sentences
+rsync flags for copying to a remote server with progress
+simplify this deeply nested conditional
+my docker build gets stuck on apt-get, is it a network thing
+how do i check if a list is empty in python, is `if not my_list` fine or should i use len()
+fix this function so it doesnt mutate the input dict
+whats the difference between pnpm and yarn these days, should i switch
+how do I inspect what an SDK is actually sending over the wire
+jq sort array of objects by a date field stored as string
+write a query to find tables containing a specific column name
+write me a bash loop that hits an endpoint until it returns 200
+how do i parse a csv that has commas inside quoted fields in python
+this try/except is swallowing everything, how should i scope it
+explain what a race condition is in databases, two sentences
+pip says package is installed but import fails in my venv
+is there a way to match a word unless it's at the start of the line
+this error says "cannot read property of undefined", how do i find WHICH property
+why does my code run fine locally but throw encoding errors on the server
+rescue my uncommitted changes after accidentally switching branches
+how do I force dig to query a specific DNS server instead of my resolver
+recover a branch I deleted with git branch -D, is it gone forever
+my setInterval keeps running after the test finishes, how do i clean it up
+why is ss showing way more connections than netstat did, is netstat even deprecated?
+rsync dry run flag, keep forgetting it
+why does the response look fine in curl but my JSON parse fails
+write a table driven test for these input output pairs
+how do I make curl ignore certificate errors just for local testing
+turn this giant function into smaller ones without breaking behavior
+how do i run a script as a specific user via systemd
+why does my LEFT JOIN filter out rows when I put conditions in WHERE
+how do i get curl to show me the full request it sends
+whats the curl syntax for basic auth again
+is this error coming from my code or a dependency
+how to select nested field with jq when key has a dot in it
+fastest way to dedupe rows in a csv from the command line
+how do I export a venv to another machine without reinstalling everything
+turn this class with two methods into a dataclass
+explain websocket vs http polling in two sentences
+iperf3 udp test shows crazy packet loss on localhost, is that normal
+why am i getting an index out of range error here
+explain git reflog like i'm five because i need it right now
+write a query to get the top 5 customers by total order value
+how do I check if the API is down or if it's my VPN
+should i use a real db in my test or fake it somehow
+write a pattern that matches balanced parentheses if that's even possible
+pipe grep output to xargs rm but it fails on weird filenames, what gives
+how do i uncommit the last 3 commits but keep files staged
+compare two arrays of objects ignoring key order
+tar excluding a directory, what's the syntax again
+whats wrong with this join im getting way more rows than expected
+rsync over ssh with a nonstandard port
+give me a one-liner to group an array of objects by a key
+why does my typescript build pass but my tests fail on types
+xargs that handles filenames with newlines, is that even possible
+refactor this to use pathlib instead of os.path everywhere
+type a deep readonly version of my config object
+why does my try except not catch this error
+what's the difference between where and having again
+best way to deep clone an object without structuredClone
+awk print lines where field 2 matches a regex
+match an ipv4 address with a regex but allow leading zeros
+why is my cron job sending me emails every run
+whats the fastest way to scaffold a test file in python
+why does my patch request return 403 but the same token works for get
+write a retry wrapper with exponential backoff for fetch
+how do i tree-shake a barrel file that re-exports everything
+dig vs nslookup vs host, when do I actually need dig specifically
+tar command to extract only one folder from a big archive
+how to remove a file from the commit but keep it on disk
+how do i write a tiny test for a function that returns a list
+docker ps shows my container but the app inside is unreachable, how do I tell what's wrong
+why does jq complain about parsing my json when it looks fine in the editor
+find the commit that broke the build using git
+help me split a csv line that has quoted fields with commas inside
+whats the smallest possible test i can write for this helper
+fix my pandas code, its reading the csv with weird encoding errors
+what's the difference between TypeError and AttributeError here
+write a recursive query for a category tree with parent child ids
+how do I get all matches including empty ones with findall in python
+docker compose up fails with port already allocated what do i do
+i amended a commit that was already pushed what now
+getting connection refused on localhost 3000 but the server says it's running
+extract only filenames from grep results not the matches
+this function works but its ugly, clean it up
+why does make say "nothing to be done" when my source file clearly changed
+how do i sort a json array by a field with jq
+convert this glob pattern to regex
+eslint flat config + typescript parser, how do i set it up properly
+this try except is swallowing everything, whats the right approach
+what's the deal with event loop, two sentences
+why does this query work in postgres but fail in mysql
+what does "pure function" mean, keep it brief
+what's a monad, plain english, two sentences max
+why is this generator exhausted after one loop
+what is tail call optimization, keep it short
+whats a good naming convention for test cases
+why does curl work but my fetch call gets 403
+whats a window function and do I need one here instead of group by
+what's debouncing vs throttling, super short
+how do I query a specific nameserver with dig instead of /etc/resolv.conf
+regex for a phone number that accepts dashes, spaces, or dots as separators
+pip upgrade all packages in one command without breaking everything
+tell me what a race condition is without the textbook fluff
+what's the difference between Caused by and the main exception
+how do i mock the current date in a test
+how do i schedule a script to run every 15 minutes with cron
+typeof null is object is this ever going to be fixed
+python script to flatten nested json into a single dict
+why is this string comparison failing on windows
+why is docker network bridge not letting my containers talk to each other by hostname
+regex to split on commas but ignore commas inside quotes
+why does my volume mount show empty inside the container
+how do i match multiline log entries where each entry starts with a timestamp
+why is my query so slow all of a sudden
+how do I get a full stack trace instead of this truncated garbage
+what's the difference between 401 and 403 again, I keep mixing them up
+how do i sort this list of dicts by a key that might be missing on some
+make a regex that validates ipv6 because apparently that's a nightmare
+read json with comments or trailing commas, is there a tool for that
+replace first occurrence only with sed, g flag keeps biting me
+why does postman work but curl gets me a cors error
+how do i match multiline strings, does the m flag work like i think
+docker compose up fails with port already allocated how do i find what's using it
+why does ts-node ignore my tsconfig paths
+help me rewrite this correlated subquery so its not dog slow
+how do I find zombie sockets eating file descriptors with ss
+dig output shows status NOERROR but no answer section, what does that mean
+how do I read this rust borrow checker error
+why does count(*) and count(column) give different numbers
+what is the halting problem, two sentences
+help i committed to main instead of my feature branch
+how do I match everything except lines starting with a specific character
+what flags should I use with iperf3 to saturate a 10G link properly
+whats the regex for iso 8601 dates
+how do i stop a process that won't die with kill -9
+what's the fastest way to replay a request from the server logs
+pip says permission denied on macos, do i really need sudo
+what does "callback hell" stack trace ordering tell me here
+difference between a stack frame and a stack trace
+docker ps shows my container healthy but requests time out anyway
+how do i find all files larger than 100mb and delete them without breaking stuff
+pnpm workspaces with typescript project references, does anyone have this working
+why does my else on the for loop never fire
+two sentences on why people hate singleton pattern
+why is my npm install so slow and should i switch to pnpm
+why does this return in a finally block kill my exception
+is there a way to pretty print json from the command line without jq
+my git rebase went sideways how do i abort or fix it
+should small tests go in one file or split them out
+why is my timeout not working, the request just hangs forever
+my error message is useless, help me figure out what's actually wrong
+how do i type a function that returns itself for chaining
+what's the difference between mutex and semaphore, keep it to two sentences
+why do i get the same error in two different files, are they connected
+what's the difference between ?: and ?= in a group
+difference between module.exports and exports again, always forget
+why does this comparison say False when the values print the same
+how do i find which port a process is using and kill it
+how do I do a non-capturing group again and why would I want one
+my volume mount works on linux but breaks on mac whats going on
+node keeps using stale node_modules even after install, wtf
+whats the cleanest way to flatten this list of lists
+explain query plan output to me like im five
+can you shrink this test down, it's 80 lines and i feel like it shouldn't be
+why does \d also match non-ascii digits and how do I stop that
+write a one-liner to extract all values matching a key from deeply nested json
+why do I get 429 immediately even though I'm way under the rate limit docs say
+need to validate a phone number with optional country code
+docker desktop won't start on mac after update anyone fixed this
+explain closures in two sentences like i'm five
+this decorator loses my function signature, how do i fix it
+this try/except around everything is hiding bugs, how do i scope it properly
+my string comparison fails because of whitespace, quickest fix
+how do I use jq to grab a nested field from a json file without it erroring when the key is missing
+how do i check if a value is a plain object and not an array or class
+why does enum in typescript generate runtime code but const doesn't
+pip install works but import fails in my script why
+whats the difference between \b and \w boundaries
+my API returns 200 but the body is empty, what gives
+my dict.get returns None but i expected a default, what gives
+what's a promise vs async await, real quick
+curl gets 200 but my fetch call gets a network error, is this a preflight thing
+why does my api work locally but 502 in production
+explain why this correlated subquery is killing performance
+shorten this validation logic
+cron job runs fine manually but not from crontab, whats going on
+whats the best way to debug a giant 300 line sql query
+write a systemd unit file for a node app that runs as a non-root user
+how do i know if this error is from my code or a dependency
+wtf is a race between microtasks and macrotasks, two sentences
+parse tsv where some fields contain escaped tabs
+how do I check if two tables have identical data quickly
+why does the api sometimes send chunked encoding and my client chokes on it
+refactor this into smaller functions, it's a 200 line method doing five things
+how do I tell if this error is from the async callback or the main thread
+what's the difference between the error message and the exception cause here
+regex to validate a phone number with optional country code
+give me a command to count connections per remote ip with ss
+how do i export installed pip packages to requirements.txt properly
+write a make target that activates a venv and runs my tests
+how do I pin a package to an exact version in requirements.txt
+why does this dict get KeyError when I use .get
+write a make target that lints, tests, and builds only what changed
+how do I send multipart form data with curl including a file and a text field
+how do i make this nested if block flatter
+why does my stack trace get truncated
+docker compose up fails with port already allocated, whose fault is it
+whats the regex for validating a slug, url safe dashes only
+difference between -d and -F in curl, which one do i use for file upload
+why does regex keep matching empty strings and how do I stop it
+why am I getting 401 when the token works fine in postman
+entrypoint script hangs and container never becomes ready, what's the usual culprit
+convert json array to csv from the command line, no python allowed
+jq command to get only the name field from every element in a json array
+which part of this stack trace should I actually care about
+how to pivot rows to columns without the pivot function
+how to pass a variable from the make command line into my script
+whats the point of WantedBy in the install section
+need to extract all urls from html without pulling in a whole library
+why is my docker container exiting immediately with code 137
+what's the cleanest way to kill everything listening on port 8080
+how do i view logs from a failed systemd service
+wtf is a race condition, two sentences
+write a docker compose file for a rails app with postgres and redis
+container status shows unhealthy, healthcheck passes when i run it manually
+my bind mount changes arent showing up in the container, what gives
+what does exit code 139 mean and why did my program crash
+explain what a thunk is in two sentences
+what does exit code 139 mean and why is there no error message
+write a one-liner to count established connections per port using ss
+whats a good iperf3 command to benchmark a 10gbe link between two servers
+docker compose up fails with port already allocated how do I find whats using the port
+why is my default argument `def foo(x, items=[])` sharing state between calls
+sed insert a line after a pattern match
+what does this http 500 response body error actually mean for my code
+pip install --user vs venv, am I just polluting my home directory forever
+how to attach to a container and see stdout live
+how do I run iperf3 in reverse mode from the client side
+make this nested loop flatter
+how do I gracefully stop containers so they don't corrupt data on shutdown
+i accidentally pushed to main how do i undo that
+make says "no rule to make target" and I have no idea why
+why is my regex super slow on long strings, can I optimize it
+why am I getting "cannot read property of undefined" when the object looks fine
+explain what this regex does: (?i)(?:https?://)?(?:www\.)?(\w+)\.com
+how do I send cookies with curl
+what is dependency injection, two sentences, no jargon
+explain iperf3 -R vs -P flags and when to use each
+why does my query return 0 rows when the data is definitely there
+why does this comparison always return False when the values look equal
+how do i test error handling without writing a whole mock setup
+difference between WHERE and HAVING, keep forgetting which one to use
+why is immutability useful? keep it short, two sentences
+my finally block runs before the return value gets set, whats happening
+what's currying, two sentences, no examples
+awk multiple delimiters, csv with quoted commas maybe
+container can't reach the internet but host can, whats wrong with the network
+refactor this nested if-else mess into something readable
+why does my pattern hang on long strings, is this catastrophic backtracking
+can i put random delays in cron so jobs dont all fire at midnight
+fix the bug where i shadow the builtin list
+why does my node app in docker run out of memory when its fine locally
+why does my minimal test case need so much setup code
+how do i edit an existing unit file and reload without rebooting
+how do I make curl follow redirects and show me every hop
+how do I test something that depends on the current time
+whats the best way to dedupe a list while keeping order
+how do i match everything between two xml tags without being greedy
+what does "cannot read property of undefined" mean and how do I fix it
+why does my cron job work when i run it manually but not from crontab
+two sentences on what a bloom filter is
+is one test case per edge case enough or am i overdoing it
+why is my postman request working but the same thing in code gives 401
+how many assertions should i put in one test case
+what does a good small test even look like
+write a one-liner to grep recursively but skip node_modules and .git
+make this function shorter without changing behavior
+how do i make tsconfig paths work at runtime without ts-node-paths
+how do I run docker in docker properly or should I not
+how do I list all failed systemd units and reset them
+whats the difference between WHERE and HAVING, my filter isn't working
+explain race conditions in two sentences pls
+what's the smallest test I can write to prove this regex works
+how do I pass query params with special characters in curl without breaking them
+what's a race condition, two sentences is enough
+my json file has trailing commas, can i still parse it somehow
+grep show me 3 lines of context around every match
+how do I query a specific nameserver with dig instead of the default
+how small should a test case actually be before it's not worth splitting out
+write a regex for iso 8601 dates including timezone offsets
+how do i rename all .jpeg files to .jpg with a one-liner
+need to benchmark a 10g link with iperf3, what options matter
+awk sum values in column 2 and print the total
+write a script that logs all connections to a specific host every 5 seconds using ss
+how do i recover uncommitted changes after accidentally closing my editor
+how do i match a newline in a pattern, \n doesn't seem to work
+how do i see what a cron job actually printed last night
+compose depends_on doesn't wait for db to actually be ready
+make -j how many jobs should I actually use
+why does python say "module has no attribute" when it clearly does
+write a docker compose healthcheck that actually detects a dead database
+why is my lookbehind failing in safari, is there a workaround
+write a jq filter that merges two json objects and dedupes a nested array
+how do I see what a systemd service's exit code was
+difference between venv and virtualenvwrapper and which should i use in 2024
+my dig response has status NXDOMAIN but I know the record exists, where do I start
+how do I inspect tls handshake failures in curl
+my build cache keeps invalidating on the COPY line, what am I doing wrong
+accidentally ran git reset --hard on the wrong branch help
+how do i view logs for a specific systemd unit with journalctl
+convert this ORM query to raw SQL so I can debug it
+why does ss show way more connections than netstat on the same box
+how do i print timing info for a curl request
+write a quick unit test for this function that adds two numbers
+container works but healthcheck keeps failing what am i missing
+jq syntax for merging two json files into one
+getting "oci runtime exec failed, exec format not found" on arm machine, what's the fix
+how do i write a test for a function that returns random stuff
+convert this glob pattern to regex: **/*.test.js
+how do i test my webhook endpoint locally without deploying anything
+how do i clean up dangling images and stopped containers safely
+my DELETE with a subquery is locking the whole table, help
+whats wrong with my dict.get default here
+is it fine to skip assertions and just run the function to see if it crashes
+how do I test a private method without making it public
+write a find command that deletes all .log files older than 7 days
+how do i move my uncommitted changes to a new branch
+whats the difference between After and Wants in a unit file
+pipe find results into tar properly without the filename bug
+two sentences on what a race condition actually is
+why is my lookahead matching nothing
+my update with a subquery is running forever, how do i speed it up
+make keeps running a target even though nothing changed, wtf
+how do I pin exact versions in requirements.txt
+why does the error say module not found when it's clearly installed
+how do I get rows from yesterday only, timestamp column keeps confusing me
+make this function shorter without breaking it
+how do i safely test a destructive query before running it
+type a curried function in ts without losing autocomplete
+what's the cleanest way to test a regex against a list of strings quickly
+why does COUNT(*) differ from COUNT(column) in my results
+what's a possessive quantifier and when would i use one instead of greedy
+how to inspect what layers make my image so big
+package-lock.json merge conflicts are destroying me any tricks
+why does make say "nothing to be done" when I literally just edited the file
+how do I keep curl from waiting forever on a hanging endpoint
+why is null a typeof object, javascript why
+why is my Authorization header disappearing when I redirect
+convert this class to use properties instead of getters
+how do i check if two objects are structurally equal without json.stringify
+should i log the full stack trace here or just the error message
+why does between on timestamps exclude the end date
+cherry-pick caused conflicts now what
+my image builds fine but crashes on startup with exit code 137
+why is my API returning 200 but the body is empty
+my cron job runs fine manually but not from crontab, what gives
+iperf3 udp mode reports packet loss, how do I know if it's the network or my settings
+npm ci keeps failing on lockfile mismatch, how do i fix it
+this error message is useless, what could it actually be
+keep getting 429 from the api, what's the right way to handle rate limits
+sanitize user input in express without pulling in a big library
+convert json array to csv with headers in bash
+ss -tan output has a recv-q number that keeps growing, is that a problem
+is it fine to have multiple asserts in one test or should I split them
+explain the difference between * and + and *? with examples
+how to handle a csv where some rows have missing columns
+explain After= vs Requires= vs Wants= in systemd
+explain what this regex is doing step by step: ^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}...$
+how do I make curl ignore SSL cert validation temporarily
+how do i capture everything between two xml tags without matching the closing tag
+this pandas line throws SettingWithCopyWarning, what do I change
+this error message is useless, what should i actually look for
+can you shrink this test down, its 60 lines for one assertion
+why does my esbuild config ignore the jsx option in node 18
+what's the deal with 429, how should I handle rate limiting properly
+why does ss show a listening port but curl gets connection refused
+docker compose up fails with port already allocated but nothing is on that port
+container keeps restarting in a loop, what do I check first
+explain this npm error output
+how do I follow redirects with curl and still see each hop
+undo git push to the wrong remote branch without making enemies
+simplify this deeply nested try except block
+grep for multiple patterns at once, like OR condition
+ss -tulpn what do the flags actually mean again
+how do i handle csv rows where some fields have commas inside quotes
+my virtualenv keeps using the system python, how do I force it
+whats the safest way to abort a merge that went sideways
+how do i recover a branch i deleted locally
+why does pip install into system python even though i made a venv
+difference between re.match, re.search, and re.findall in python
+fix this off by one in my range loop
+rewrite this nested if mess into something readable
+how do I swap two dict keys without messing up order
+why does curl work but my fetch request fails with cors error
+why does the error say maximum call stack size exceeded, where's the recursion
+why does iperf3 show way lower throughput than my link is rated for
+this slice copies the list right, or is it a view
+how do I group by date when my timestamp column has times in it
+write a one-liner to list all listening tcp ports sorted by port number
+why does my count return 0 when I know rows exist
+write a jq filter that converts an array of objects into a single object keyed by id
+turn this into a generator so it stops eating memory
+how do i reload systemd after editing a unit file without rebooting
+how do i skip comment lines starting with # at the top of a csv
+fix this: can't connect to docker daemon, is the daemon not running
+how do i get the last record per user without a window function
+why is my mutable default argument causing weird bugs
+why does my container exit immediately with code 137 every time
+how do i make a systemd service auto restart when it crashes
+count matching lines across files and sort by frequency
+how do I match a multiline block that starts with BEGIN and ends with END
+convert nested json to csv with jq, is that even possible or do i need python
+how do I debug a 401 that only happens in production
+my csv has different column counts per row, how do i handle that
+regex to validate a password with at least one number and special char
+whats a memory leak, two sentence explanation
+what does npm save-exact actually do differently
+why is this variable undefined when i import the module but fine running it directly
+i merged the wrong branch into main undo this please
+regex for phone numbers that handles dashes dots spaces and country codes
+rsync flags for dry run plus delete mirror, don't want to nuke prod
+how do i pretty print a json file from the command line
+extract only specific columns from a csv using awk or something simpler
+regex to capture everything between two ### markers including newlines
+what's a monad, keep it to two sentences i swear
+my GROUP BY query keeps throwing "not aggregated" errors, what am I missing
+fix my LIKE pattern, it matches nothing but data is there
+how do I debug oomkilled in docker, where's the memory going
+why does \b not match the boundary I expect in this string
+why is my rsync copying everything instead of just changed files
+how do i pivot rows into columns without using pivot
+can i run npm scripts without npm run all the time
+why does my service show active but the process died
+npm ci vs npm install, when does ci actually matter
+help me shrink this 200 line test into something readable
+my coworker force pushed and my local is out of sync how do i recover
+ENTRYPOINT script fails but I cant see the error, where are the logs
+is it bad if my test fixtures are longer than the actual test
+how do I reset my fork to match upstream after I broke it
+how do i read the postgres explain analyze output
+can I run iperf3 over udp instead of tcp
+git push --force accidentally overwrote teammate's commits how do i recover
+why does npx ask me to install a package I already have globally
+whats a good small test for a function that throws an exception
+can curl show me just the http status code without the body
+how do I match an odd number of characters between two delimiters
+why does this generator only work once then it's empty
+difference between WHERE and HAVING, when do I actually need HAVING
+undo a commit but keep the message for next time
+how to unstage a file i accidentally added
+venv created with old python version, can I upgrade it in place or recreate
+write a query to find duplicate rows in a table
+smallest test possible for checking null handling, just want it to not blow up
+what is memoization in plain terms, real quick
+need a pattern to validate phone numbers with or without country code
+find all empty directories and delete them, safe for weird filenames?
+how do i squash my last 5 commits into one without breaking things
+explain what a database index is in 2 sentences
+permission denied writing to volume mount, how do I fix this
+give me a minimal test for string reversal including unicode edge cases
+why does python say list index out of range when the list has items
+what's a monad, two sentences, dont lie to me
+why is my docker image so huge, how do I check what's bloating it
+crontab vs systemd timers which should i use for a daily backup
+service unit keeps restarting in a loop, how do I add backoff
+can you make a small test for this sql query so i don't have to spin up the db
+what does ss state close-wait mean and why do I have thousands of them
+how do I debug a 502 from my nginx reverse proxy
+why does my regex work on regex101 but not in my javascript code
+whats the right way to add a postinstall script without breaking CI
+how do i make node read env vars from a .env file without dotenv
+rsync flags for mirroring with delete but excluding one subfolder
+convert this dict iteration to use .items() instead of .keys() with lookup
+is this correlated subquery why my query is so slow
+why is my sed not matching dots, escaping issue?
+how do I get the ttl from dig output without the extra noise
+should I bother testing getters and setters or is that a waste
+write a jq filter that counts how many objects have a specific field value
+whats the fastest way in python to read a huge csv without loading it all in memory
+why does my regex match more than expected with nested quantifiers
+fastest way to count occurrences in an array
+make: how do i make one target depend on another completing successfully
+what's the difference between let and const in two sentences
+convert this for loop to a comprehension pls
+what's the cleanest way to manage multiple node versions
+how do I match everything between two tags including newlines
+how do I structure a test for a pure function with lots of input combos
+what does systemctl mask do and why would i use it
+how do I recover a commit from reflog after force pushing over it
+why does my regex work on regex101 but fail in java
+explain polymorphism in exactly two sentences
+convert xml to json, any tool that doesn't mangle attributes
+fix this SQL injection risk in my dynamically built query
+how do i make my service auto restart when it crashes in systemd
+why did my compose build suddenly start failing on apt-get update with 404s
+git checkout lost my uncommitted work is it gone forever
+write a debounce function in typescript with proper generics
+csv rows have inconsistent column counts, how do i handle that
+how do i tell which exception actually caused the crash when theres a "caused by
+whats wrong with my HAVING clause, it filters out groups it shouldn't
+whats the difference between Type=simple and Type=forking
+explain this null pointer exception like I'm five
+how do i restart a service automatically if it uses too much memory
+give me a two sentence explanation of big o notation
+explain this java stack trace in plain english
+how do I pivot rows into columns without writing a huge CASE statement
+kill a stuck process that ignores kill -9
+how do i parse a csv that has commas inside quoted fields without pulling my hair out
+why does pandas read_csv mangle my column names
+what does tail recursion mean? two sentences max
+how do I handle utf-8 bom messing up my csv headers
+why is my .* not matching across line breaks and how do I fix it
+sed command to replace foo with bar only in lines that contain baz
+awk to print the second-to-last column of each line
+how do i debug a container that has no shell installed
+how do I get into a container that keeps crashing before I can exec in
+does this stack trace mean the bug is in my code or the framework
+how do i undo my last commit but keep the changes
+why does make say nothing to be done even though I edited the source file
+how do I capture the text between two tags without grabbing the closing tag
+explain git cherry-pick like im five
+npm install keeps failing with EACCES on the lockfile, how do I fix perms
+why does my PATCH request work in staging but return 415 in prod
+how to split one giant csv into chunks of 100k rows each
+fix this query, its throwing a syntax error near ON
+what is a closure in js, two sentences max
+why does the stack trace say "anonymous" everywhere
+whats the correct way to compare dates ignoring time in Postgres
+how do I clean up all the dangling images and volumes eating my disk
+how do I get make to run multiple targets in parallel
+squash last 5 commits into one
+how do i test a function with lots of if branches
+why is my timer showing elapsed but never triggering
+how do i run a systemd service as a specific user instead of root
+is there a way to get netstat style verbose output from ss or am I missing columns
+how do i run something as a specific user in systemd
+why is my index not being used in this where clause
+how do I make my tests readable when the setup is inherently messy
+should small tests live in the same file or a separate test directory
+why does my catch block swallow the stack trace
+convert csv to jsonl for bulk loading into elasticsearch
+my PUT works in curl but PATCH throws 415, what's that about
+how do I pass a variable from the make command line into the recipe
+make this deeply nested optional chaining less ugly
+my API returns 200 but empty body, how do I debug that
+how do I get the second highest salary without using LIMIT
+merge multiple json files into one array with jq -s but keep memory low
+container works locally but fails in k8s, where do I even start
+how do i make this nested for loop flatter
+how do I copy a file out of a container onto my machine
+why does is return false for equal strings
+how do i see the actual execution plan for this query in postgres
+is there a shorter way to do this if/elif/elif chain on one variable
+one-liner to flatten an array of arrays of any depth
+this async function swallows errors, where should the try/catch go
+how do I shrink this 100 line test into something readable
+why is my POST showing up as OPTIONS in the server logs
+what's memoization and when should I bother with it
+what does "UnhandledPromiseRejection" actually want from me
+is this exception something i should catch or let crash
+how do i handle None here without a wall of if checks
+iperf3 reverse mode vs normal mode, which side is the server actually sending
+write a python script that converts a csv to json
+how do I see the actual response headers curl is getting back
+how to debug a query that hangs and never finishes
+can I use case inside an aggregate function
+why does the error move to a different line after I fix something
+whats the difference between json.load and json.loads, keep mixing them up
+rename all .txt to .md in subdirectories with find
+find all symlinks pointing to a deleted file
+replace these string concatenations with join
+how do I downgrade a package with npm and update package.json correctly
+what is memoization? short answer, two sentences
+how do i reload unit files after editing them without rebooting
+how do I keep my test fixtures small when the object needs ten fields
+how do i come up with edge cases for a simple function
+explain CORS in two sentences because I'm tired of copy-pasting headers
+convert this loop to a dict comprehension
+refactor this to use a dataclass instead of a dict
+rsync only newer files, don't copy everything again
+why does this correlated subquery run forever but the join version is instant
+how do i assert a variable is not undefined in typescript without turning off strict
+how do I test a function that uses the current datetime
+how do i get a file back from an old commit
+npm install works but node says cannot find module, what am i missing
+why does my service work fine in foreground but fail under systemd
+what's the cleanest way to match an ipv6 address, is one regex even reasonable
+why is my except clause catching everything including KeyboardInterrupt
+how do I find duplicate rows in a table without deleting anything
+my DELETE request returns 405, is the server broken or is it me
+sed delete last line of a file in one line
+why is iperf3 way slower than my NIC says it should be, single stream
+kill -9 vs kill -15, when should i actually use which
+npm ls shows extraneous packages, what does that even mean
+my retry logic hammering the api, what backoff strategy should I use
+why is npm ci failing where npm install works
+how do i squash my last five commits into one
+cherry-pick a commit from another branch without pulling the whole thing
+why does this stack trace mention files i've never touched
+this comprehension is unreadable, rewrite it as a normal loop
+why does the error say one line but the real bug is elsewhere
+how do I tell which frame in the stack trace is actually my code
+my image works locally but fails in CI with exec format error
+i amended a commit that was already pushed now everything is broken
+why is OPTIONS request failing before my actual POST even happens
+prune dangling images without nuking stuff i still need
+why does javascript have hoisting, tldr version two sentences
+how do I set environment variables for a systemd service
+what does "detached HEAD" mean and am I losing work right now
+how do i write a test for a function that just calls another function
+whats a good iperf3 command to test under packet loss conditions
+why does the stack trace show framework internals instead of my code
+write me a quick sanity check script that pings, digs, and iperfs a new server
+explain sql injection in two sentences for an interview
+whats the deal with Restart=on-failure vs always
+what does the volatile keyword do, short version
+read this error and tell me what to check first
+write a small pytest that checks a list gets sorted correctly
+give me two sentences explaining what a race condition vs data race is
+write a regex that matches an email but doesn't blow up on plus addressing
+make a fetch wrapper that retries with exponential backoff
+undo git add before committing
+my api returns 200 but the body is empty, what do I check
+why does my error say undefined is not a function with no line number
+convert this for loop to a comprehension
+what does ECONNRESET mean and how do I fix it
+make this regex faster, it's catastrophic backtracking on long strings
+permission denied when writing to a mounted volume from inside the container, why
+what's duck typing, two sentences max
+how do I debug a websocket connection that keeps dropping
+why does my date comparison ignore rows from today
+write a regex that matches a valid email but doesn't reject plus signs in the local part
+show me a small test for a function that throws on bad input
+how do I pipe find results into cp without breaking on spaces
+why does my except clause swallow the actual error
+whats the fastest way to convert a json array to csv from the command line
+how do I inspect what headers my reverse proxy is stripping
+why does my query return NULL instead of 0 for SUM on empty results
+how do i upgrade pip inside a virtualenv without weird errors
+grep case insensitive but only show filename
+how do I debug a 502 that only happens intermittently
+how do i get the last element of an array without popping it
+jq filter to find objects where a nested field is null
+awk one-liner to print the 3rd column of a csv
+is this error from my code or a dependency
+is there a shorter way to write this if elif chain
+what's a good tiny test to prove this bug actually got fixed
+awk compare two files and print lines only in the first one
+how do i see logs for a specific systemd service
+dig returns different IPs each time, is something wrong with my DNS
+restart a service only if the config file passes validation first
+mask vs disable a systemd unit, when do i use which
+write a regex to validate an email address that actually handles edge cases
+how do i make this dict lookup safe without a wall of ifs
+how do i query nested json with jq when key names have dots in them
+show me how to stream a large csv file line by line in node
+why do people say small tests catch bugs faster, mine just make more files
+what's a deadlock, explain it like a standup update
+convert this for loop building a list into a comprehension
+why does my multiline flag break my ^ and $ anchors
+write me a crontab line that runs every 15 minutes except at night
+write a one-liner to check if port 443 is open on a remote host using ss or dig
+whats the difference between After and Requires in a systemd unit
+sed replace text in place across multiple files without backup files everywhere
+netstat is deprecated right, should I switch everything to ss
+how do i debug a query that just hangs forever
+merge these two nearly identical functions
+my node app in docker crashes with ECONNREFUSED to localhost service
+how do i safely test a delete query without nuking real data
+why does my error say undefined is not a function when undefined is right there
+what does this null pointer exception actually tell me
+give me a type for a function whose keys map to its return values
+tar vs rsync for incremental backups, which is less painful
+how do I write tests fast when the interface keeps changing
+convert this dict of dicts to a dataclass
+how do i see what cron jobs exist on the whole system
+what's the difference between dig +trace and just dig +norecurse
+show me a retry helper with exponential backoff in typescript
+what's the difference between (a|b) and [ab] and when do i care
+what does -v actually show in curl and how do I read it
+write a throttle with a leading and trailing option
+whats the right way to structure a makefile with subdirectories
+explain promise vs observable in two sentences or less
+why does between behave weird with timestamps
+sed replace nth occurrence of a pattern on a line, how
+why does my try catch not catch this error
+how do i know if this error is transient or a real bug
+how do I stop compose from rebuilding the image every single time
+what is the CAP theorem, explain like I'm tired
+why is my exception message swallowed silently
+netstat says the port is listening but I still get connection refused, why
+make this return early instead of deep nesting
+how do i set an env var in a systemd service file
+fix this mutable class attribute that's leaking state between instances
+is there a way to make a regex case insensitive without flags
+how do i override just one setting in a systemd unit without editing the whole file
+whats the diff between ss and netstat at this point, should I still use netstat
+why does my async function return a promise of a promise
+container says no space left on device but host has plenty of disk
+how do I get curl to show me timing breakdown for a slow endpoint
+pip install inside a requirements.txt pointing at a git repo keeps failing, syntax help
+how to select array items where a field is not null in jq
+jq to update a nested field without rewriting the whole file by hand
+write a systemd timer to replace my daily cron job
+write a find command that deletes all .pyc files older than 7 days
+give me a small jest test for async function rejection cases
+what is duck typing, two sentences
+why is npm install taking forever and can I see what it's actually doing
+why does my systemd unit say "failed to start" with exit code 1
+how do i get output from a backgrounded script into a log file
+how do i test a one-liner method or is that overkill
+show listening sockets but exclude unix sockets, ss keeps dumping a wall of them
+find empty directories and delete them safely
+how do i skip the header row when reading csv with pandas
+my request takes 30s then times out, how do i figure out where it's hanging
+how do i run a service as a non-root user
+why is my detached head state happening and how do i get out
+what's the least amount of setup I need to test this handler
+make this loop use a list comprehension instead
+how do I escape special characters in a string before building a regex from it
+someone explain event loop like i have 10 seconds
+explain event loop in two sentences pls
+why is my negative lookahead matching things it shouldn't
+ts keeps complaining about implicit any on this map callback, how do i fix it
+decode this cryptic webpack build error for me
+cron stopped sending mail, how do I see stderr from a scheduled job
+translate this cryptic C++ compile error into English
+my docker build is super slow what's caching the layers wrong
+what's the fastest way to find which query is blocking another
+what's the CAP theorem in two sentences
+reset to remote branch discarding all local changes
+how do i find all files modified in the last 7 days and delete them safely
+quick one: what is a thunk, two sentences
+whats the ss command to list only IPv4 listening sockets
+how do I run a locally installed binary from node_modules without npx
+whats the difference between .* and .+ again
+how do i tell if an error message is misleading me
+explain what "unhandled promise rejection" means and where it's coming from
+what's the difference between ?? and || again
+container says permission denied writing to mounted volume on mac
+docker desktop on mac is slow mounting my repo any way to speed it up
+why can't my containers talk to each other on the same network
+jq: how do i get the length of an array
+cleanest way to delete node_modules on windows without it taking 20 minutes
+replace tabs with spaces recursively with sed or something else
+how do i set environment variables in a systemd unit
+write me a short cheatsheet for fixing common git disasters
+how do I replace a string in every file under a folder without opening them
+wrote a script to clean up old merged branches locally and remotely
+jq select where value contains a substring
+how do I clean up dangling images and stopped containers all at once
+regex to find duplicate words in a sentence like "the the
+getting SSL certificate error with curl but the cert looks fine in the browser, why
+whats the difference between forking and simple service type
+convert a callback based function into a promise properly
+how do i turn this nested for loop into a dict comprehension
+dig +short vs +trace when should I use which
+how do i capture the nth occurrence of a pattern
+split a string on commas but not ones inside quotes
+why is my index not being used, explain says seq scan
+what's the difference between (a|b) and [ab] again
+explain polymorphism in two sentences
+virtualenv vs venv vs python -m venv, which one am i supposed to use now
+can iperf3 run multiple parallel streams and which flag is it again
+add type hints to this function without changing behavior
+why does my promise.all reject immediately instead of waiting for all
+why is my lookahead matching nothing even though the substring exists
+why does npm ci fail on a lockfile that works locally
+write me a curl command with a bearer token and a JSON body
+what does "declarative programming" mean, keep it short and honest
+why does my event listener fire twice even though i only added it once
+git checkout vs git restore vs git switch which one do i use now
+make keeps rebuilding files that haven't changed, how do I fix the dependencies
+is there a way to run a single package script from the repo root without cd
+why is dig returning different results than what my browser sees
+explain cap theorem briefly please
+how do I attach a debugger to a process running inside a container
+how do I read this Java stack trace, what's Caused by supposed to tell me
+why does my jest mock return undefined even though i set the mockReturnValue
+stop eslint from complaining about unused vars in catch blocks
+one-liner to show biggest files in a directory sorted by size
+my request works in http but fails over https with handshake errors
+how do i do a case-insensitive match without the i flag
+why does my container exit immediately after starting
+how do I get netstat-style output from ss, the flags confuse me
+cherry-pick keeps failing with conflicts, what am I doing wrong
+write a quick unit test for this helper that validates emails
+why does this return None instead of the value
+combine find and grep to search inside .py files only
+find files modified between two dates
+how do i stash my changes and come back to them later
+my process keeps getting killed, is there an OOM killer log i can check
+how do i test edge cases like empty input without writing 5 separate tests
+whats the pythonic way to check for empty list
+why is my curl request hanging forever with no timeout
+can I skip assertions in a smoke test or is that pointless
+ts complains cannot use namespace as a type, whats the fix
+how do I aggregate json values in a group by
+whats the difference between docker stop and docker kill again
+why does my lookahead work in regex101 but break in javascript
+write me a query to find duplicate rows but keep the newest one
+why does my typescript build pass but the runtime import fail
+how do I batch update a million rows without locking the table
+how do I check if UDP packets are actually arriving with iperf3
+help, removed my container, is the data in the anonymous volume gone forever
+awk sum the values in column 3 and print the total
+what's the point of ExecStartPre vs ExecStart in a unit
+what's causing this stack overflow, the trace just repeats forever
+write a parametrized test covering a few input variations
+how do I make this regex case insensitive without the i flag
+how to escape special characters when building regex from user input
+how do I run a one-off script as a transient systemd unit with resource limits
+how do I get a shell into a container that won't stay running
+why does netstat -an show 0.0.0.0:* for the foreign address
+find and delete all files older than 30 days but keep the directory structure
+fix this UnboundLocalError im getting in a closure
+explain this segfault backtrace, what do the addresses mean
+how do i write a test that only checks one thing, my tests always do too much
+explain what an idempotent api means in two sentences
+why is jq returning null instead of the value I'm asking for with .foo.bar
+tar a directory but exclude .git and node_modules
+fix this circular import without moving everything into one file
+how do I count established connections by ip with ss
+explain idempotency in two sentences, keep it simple
+how do I run multiple make targets in parallel with proper dependency ordering
+how do I test udp bandwidth with iperf3, the server side keeps erroring
+node is eating all my ram on a big file read, whats the streaming way to do this
+can curl show me just the response time
+can i skip assertions and just check the code runs without crashing
+why is my container exiting immediately with code 1 and no logs
+explain this error like I'm five because I've been staring at it for an hour
+how do I handle commas inside quoted fields when parsing csv in python
+why is my UNION dropping duplicates when I need to keep them
+whats the difference between Type=simple and Type=forking in a unit file
+why is my rsync copying everything again instead of just the changed files
+my multi stage build keeps failing on COPY, file not found, paths look right
+query works in dev but fails on prod with syntax error, postgres version difference?
+rsync to copy only updated files without deleting existing ones
+what headers do I need to set for a preflight OPTIONS request to pass
+whats the ss equivalent of netstat -antp --tcp
+what does this typescript error about incompatible types actually mean
+how do I know which exception in this chain actually caused the crash
+why does my generator function return a generator object instead of running
+how do i recover a branch i deleted locally but never merged
+how do i make a timer that only runs on weekdays at 2am
+what's the curl flag to keep the connection open and send multiple requests
+git reflog how do i use it to find lost commits
+help me figure out which frame in this stack trace is mine
+how do I get make to skip recompiling files that haven't changed
+how do i check if an object is empty without lodash
+why does my systemd service show active but the process isn't actually running
+what's the deal with wasm, explain in two sentences
+this regex works locally but fails on the test string, what's wrong
+whats the difference between CMD and ENTRYPOINT because mine seems broken
+help me figure out which frame in this trace is mine
+my group by keeps throwing a column not in group by error whats wrong
+fix this query, it says invalid column name but the column exists
+why is big O not about speed, two sentences
+why is git pull creating merge commits instead of just fast-forwarding
+explain why networking between two compose services fails with dns resolution error
+how to pivot rows into columns without a bunch of CASE statements
+why does my sed multiline replace not work
+generate a few edge case tests for parsing this string input
+grep case insensitive whole word only
+write a dig command to trace the full DNS delegation chain from root
+explain the difference between process and thread briefly
+extract just one folder from a big tarball
+my join creates way more rows than expected, cartesian product issue?
+how do i revert a commit thats already pushed to shared branch
+whats wrong with this query, the dates come back a day off
+why is my PUT sending the body but the server sees nothing
+need a script to rename all files in a dir from snake_case to camelCase
+build a regex that matches json keys but not their values
+why is iperf3 only showing half my expected bandwidth
+why does ss show sockets in CLOSE_WAIT that never go away
+explain what a middleware is, two sentences only
+how do I anchor a match to start of line in multiline mode
+my transaction deadlocks with another one how do i find the cause
+my Makefile works from cli but fails in CI, what gives
+parse json where the top level is just a huge array of a million objects, streaming it
+how do I debug a docker network so containers cant talk to each other
+what's the difference between git revert and git reset again
+my container cant reach the internet, whats usually the culprit
+what does "column is ambiguous" mean and how do I fix it
+nohup vs systemd run, which should i use for a one-off long running task
+what does connection reset by peer actually mean here
+is there a curl flag to follow redirects and show the final url
+how do i read a stack trace bottom up or top down
+how do I make python show the full traceback
+my csv has a weird BOM character breaking the header, how do i strip it
+how do i view and edit cron jobs for another user
+how do I match repeated groups and get every capture not just the last one
+what does the @ prefix in a Makefile rule actually do
+how do i unstage a file without losing the changes
+tar a directory while excluding git stuff and node_modules
+how do i make a service run as a specific user without sudo
+what do i actually assert when the output is a big json blob
+explain the observer pattern in two sentences
+optimize this slow select with three joins on 2 million rows
+how do i stop this recursive function blowing the stack
+tar preserve permissions when extracting on linux
+difference between systemctl restart and reload
+service keeps getting OOM killed, how do i give it more memory or stop that
+how to make esbuild bundle a node server without breaking native modules
+my webhook works in the tester tool but not in prod, where do I even start
+regex to validate password with at least one number one uppercase and one symbol, min 8 chars
+how do I print the full request curl is sending including headers
+jq filter to get only objects where a field is not null
+how do i run a command on each file find returns
+whats the right way to run something on boot before the network is up
+how do I make a systemd service restart when it crashes
+how do I see the actual command a running container was started with
+git stash pop had a conflict and now my stash is gone?
+how do i run a script from another script in package.json
+write a query to find the second highest salary per department
+find all files larger than 100MB sorted by size
+why is my cron job not running, logs look empty
+how do i revert a merge commit
+explain raft consensus super briefly, like two sentences
+my app in docker can't resolve dns anymore after I restarted the daemon
+why does ts ignore my type when i import from a js file
+extract just the "email" field from every object in this json array with jq
+whats the difference between is and == when comparing strings, my check keeps failing randomly
+this java stack trace is 200 lines where do i even start
+how do i flatten this nested dict without recursion headaches
+should I use pipenv or venv in 2024
+write a Makefile that rebuilds only when headers change
+dig for AAAA returns nothing but the site loads on ipv6, how
+how do i tell which exception is the real one vs noise from a wrapper
+why does systemd keep restarting my failed service in a loop
+why does git pull keep creating weird merge commits
+why does docker compose ignore changes to my env file
+how do I find which unit file a running process belongs to
+why does iperf3 say connection refused when the server is definitely running
+whats the cleanest way to parse command line args without adding a dependency
+is walrus operator appropriate here or am i being clever
+why does this error mention a file I deleted ages ago
+compose says image not found even though it built fine, whats wrong
+why is dig returning stale records after I updated the zone
+is there a way to run a systemd timer instead of cron and why would I bother
+write a dockerfile that doesn't end up 2gb
+how do i escape all special characters in user input before matching
+how to grep a pattern but show the 3 lines after the match
+write a typescript util that picks keys matching a value type
+awk vs sed for extracting the third column of a csv which is faster
+why is Content-Type getting overwritten to text/plain when I set it in curl
+can i have multiple virtualenvs for the same project
+explain hoisting in two sentences
+why does process.env.MY_VAR give undefined even though i set it in .env
+how do i test a function that calls an external api
+how do i make an enum where the values are strings not numbers
+write a minimal test for a function that takes a dict
+how do i make a script run at boot before networking is up
+node keeps complaining about esm imports, how do i fix the package.json
+how do i grep case insensitive in multiple files and show filenames
+how do i make systemd restart my app only if it exits nonzero
+pip installed the package but import still fails, is it the wrong env
+how do I rsync over ssh with a non-standard port
+explain the difference between auth and authz in two sentences
+make this script use pathlib instead of os.path everywhere
+how do i make sure a service starts only after postgres is actually accepting connections
+my service keeps getting OOM killed, how do I set memory limits in the unit file
+curl keeps sending Content-Type application/x-www-form-urlencoded, how do I force json
+write a dockerfile that doesn't run as root but can still bind port 80
+how do I pass env vars into a container without baking them into the image
+translate this rust compiler error into plain english
+what does this cryptic python traceback actually tell me
+how do i type a function that returns different stuff based on a discriminator field
+how do I make this regex case insensitive in javascript
+make this function stop mutating the input list
+what does exit code 139 mean, did i segfault
+how do I pass env vars into docker compose without committing secrets
+my docker build hangs at pulling base image any ideas
+my forEach with await isn't awaiting, what's going on
+how do I show only established connections with ss and exclude listening sockets
+how do I tell which frame in the stack trace caused the bug
+why does importing json throw ts error but works at runtime
+is there a way to type pick only optional fields from an interface
+explain pub sub in the dumbest way possible
+fix my merge conflict please, here's the file contents
+how do i match a word boundary with special characters like # or +
+what's dependency injection, two sentences only
+why does my for loop modify the list while iterating and skip elements
+use xargs to run my command in parallel with p cores
+find files by extension then chmod them all
+explain solid principles in like two sentences not an essay
+does netstat still exist or is it deprecated everywhere now
+my entrypoint script hangs forever, how do I figure out where it's stuck
+why does curl work but my fetch request gets 403
+my container works locally but fails in ci with exec format error
+how do i recover a deleted stash i just popped wrong
+xargs with commands that need extra args, how do I insert the filename mid command
+write a query to find rows where a jsonb field contains a key
+how do I pass variables to make from the command line
+give me a make target that runs npm build only when src files change
+split this 200 line function into smaller ones
+amend a commit that's already on the remote without getting yelled at
+what does ERR_STREAM_WRITE_AFTER_END mean, my pipe looks fine
+how do I get ss to show memory usage per socket for debugging a fd leak
+is it better to use a systemd timer or cron for scheduled stuff
+how do i type a function that takes a tuple and returns it reversed
+why does my timer unit never trigger
+my app in docker cant reach the internet but works on host
+npm install keeps failing on node-gyp, how do I fix it
+why does my csv have quotes around every field now and how do I make pandas stop doing that
+why do people say dont test implementation details
+fix the rounding error, round() keeps giving me 2.675 to 2.67
+whats the point of virtual dom in two sentences
+why does my regex work on regex101 but break in javascript
+what's the event loop, 2 sentences max
+how do I make a group optional without the whole match failing
+split a huge csv into chunks of 10000 rows each
+best way to split a huge csv into chunks of 100k rows without loading it all in memory
+why does rsync say file has vanished
+help me find which query is locking this table
+can I run multiple parallel streams in iperf3 and how do I interpret the results
+how do i unstage everything without losing my changes
+write a command to validate a bunch of json files and list the broken ones
+why does my curl request work but the same thing in python fails
+sed multiline replace, the m flag never works for me
+one-liner to replace foo with bar in every file under a directory
+should each edge case get its own test or can I group them
+what does "undefined is not a function" actually mean here
+my INSERT is failing on a unique constraint, how do I do an upsert
+why does this == not === thing even matter
+why is my unit stuck in activating state forever
+why is my container healthy according to docker but the app inside is dead
+how do i know when my test is testing too much
+venv vs virtualenv vs virtualenvwrapper, just tell me which one to use
+how do i make systemd start my service after the network is up
+why is my sed -i creating weird backup files with tildes
+help me write a test for an edge case where input is empty
+why does my regex work on regex101 but not in javascript
+what's a non capturing group for again, keep forgetting
+i did a hard reset and lost uncommitted work can i get it back
+is there a way to see what a make target actually runs
+sed to print everything between two patterns
+volume mounts working on my machine but not in ci why
+how do i type a function that returns different types based on a string arg
+what's the ss equivalent of netstat -tulpn
+rewrite this query to avoid the full table scan
+how do I check dns resolution time breakdown with dig, just the server query time
+convert this promise.allSettled result into successes and failures arrays
+write a regex to validate an email address and explain what each part does
+make keeps rebuilding everything every time, is my dependency wrong or timestamp issue
+explain what \b does because i keep getting wrong word boundaries
+what's the point of an interface, two sentences
+this stack trace is 300 lines, just tell me which part matters
+i committed to main instead of a branch how do i fix this
+how do I query a specific nameserver with dig instead of the system one
+what's the deal with virtual dom, two sentences
+what's the difference between mutex and semaphore in two sentences
+merge two csvs on a shared column without pandas, what's the cleanest way
+explain this pattern character by character: ^(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+)
+regex to validate ipv4 addresses, don't want to just match 4 numbers blindly
+is it worth writing a test for a one liner
+make keeps running a target even though the output file is newer
+how do I npm install a specific version of a package not latest
+explain monads in two sentences, pretend I'm tired
+how do i split up this giant test into smaller ones
+why does my POST body show up empty on the server side
+convert a tsv to json with python stdlib only
+netstat is deprecated right, what replaces the -tulnp flag
+difference between unknown and any, when do i actually use unknown
+awk to print lines where column 2 is greater than 100
+find files larger than 100MB and sort by size
+why is my date filter off by one day
+get the difference between two arrays of objects by id
+search git history for when a string was removed, can grep do that
+my http client times out but curl from the same machine is instant, why
+how do I check env vars inside a running container
+what does "shallow copy" mean, two sentences
+why am i getting "undefined is not a function" with no useful line number
+getting CORS error in browser but not in curl, what gives
+how do i make git forget a file was ever committed but keep it locally
+write a curl request with basic auth and a json body
+how do I follow redirects with curl and see each hop
+what's the difference between a warning and a fatal error here
+how do i structure a small test so it reads like a sentence
+why does my group by query say column must appear in group by clause
+is it ok to skip writing tests for getters and setters
+my crontab isn't running, how do i debug it
+is netstat deprecated should I just stop using it
+stash list is a mess how do i apply an old stash without losing it
+replace these magic numbers with named constants
+how do I make my regex faster, it's timing out on large inputs
+how do i fix my commit message typo after already pushing
+how do i come up with edge cases, i always miss the obvious ones
+what's a closure again, two sentence version
+best way to dedupe json objects in an array with jq
+what does the 2>&1 in my cron redirect actually do
+explain this java stack trace to me line by line
+how do I check which ports a container is actually exposing vs mapping
+how do i get a full stack trace when node only shows truncated one
+explain this window function partition by thing like I'm five
+grep case insensitive and only count matches per file
+i did git reset --hard and lost uncommitted changes am i screwed
+whats the difference between csv.DictReader and just using the csv module normally
+why does my API return 200 but the body is empty
+my regex works on regex101 but breaks in java, why
+combine find and grep correctly, why does -exec grep {} \; feel slow
+package-lock merge conflicts are killing me, is there a cleaner workflow
+how do i know if an error is from my code or a dependency
+how do I capture ss output before and after a connection drop to debug it
+regex for password validation, at least one number one uppercase, explain each part
+node fetch keeps giving ECONNRESET, is it a keep-alive thing
+why does find -name "*.txt" miss uppercase TXT files and how do I fix it
+how do i debug a postgres query that hangs forever
+explain async await in 2 sentences
+how do i kill a process thats stuck in D state and ignoring everything
+diff between WHERE and HAVING, I keep mixing them up
+why is my regex matching an empty string when it shouldn't
+journalctl is a wall of text, how do I just see one unit's recent errors
+how do i check what cron jobs exist across all users
+explain what rest means, two sentences, not the whole api spec
+need a pattern to extract version numbers like v1.2.3-beta from a string
+my regex works on regex101 but fails in Java, what's different between flavors
+reading 10gb jsonl file in python without blowing up memory
+how do i debug what headers my proxy is stripping
+why is process.env undefined in my vite app
+how do I get the second highest salary without a subquery
+pip install -r requirements.txt is slow, is there a way to cache wheels
+what's the smallest possible test case i can write to check if this regex works
+how do i read a jsonl file line by line in python
+two sentences on what a mutex actually does
+how do I replace text but keep part of the original match using capture groups
+write a one-liner to find all files over 100mb and delete them
+why does sorted work but sort crashes my list
+why does systemd say my service is active but the process is dead
+how to figure out which layer is bloating my image to 2gb
+is there a npm script flag to skip lifecycle scripts entirely
+match a quoted string that can contain escaped quotes inside
+how do i know when my test is too small to be useful
+this lambda is getting ugly, convert it to a named function
+how do i write small integration tests that dont spiral into e2e monsters
+container says no space left on device but df shows tons free
+how do I write a small test case for a function with a lot of inputs
+getting no space left on device but df says plenty free
+turn this into a generator instead of building a list
+how do I get logs from a specific container in compose without the other noise
+how do i see the raw request curl is actually sending
+show me every established connection with its process name using ss
+is there a netstat equivalent for `netstat -tulpn` using only ss?
+what does "curl: (56) recv failure" mean
+how do I make npm stop printing the whole tree every install
+what's the difference between restart and reload in systemctl
+how do i gracefully stop a service instead of killing it
+why is my container not reachable from host on localhost
+why is big o called big o
+why does replaceAll need the g flag, isn't "all" implied
+read this error and tell me what I did wrong
+how do I make one make target depend on another running first
+explain OnCalendar syntax, the man page is incomprehensible
+what's the difference between latency and throughput, two sentences
+how do I assert two floats are close enough without exact equality
+how to sort a csv file by the third column from bash
+how do i reload a unit file after editing it without rebooting
+how do I match a string that doesn't contain a certain substring
+getting SSL certificate problem unable to get local issuer certificate on curl, fix?
+how do I join two tables on multiple columns and only keep unmatched rows
+my api returns 200 but the body is truncated, what's going on
+why am I getting 429 when the rate limit headers say I have quota left
+quickest way to pretty print a huge json file without loading it all into memory
+whats the idiomatic way to swap two dict values
+unstage everything and start the commit over
+help me figure out if this CORS error is a frontend or backend problem
+what does -H "Content-Type: application/json" actually change
+when should i use exists vs in vs join
+why does my ORDER BY inside a CTE get ignored
+docker desktop keeps hogging all my ram, can I limit it
+explain what garbage collection does in two sentences
+why is my default argument mutating between calls
+why does \b treat underscores as word characters, that keeps biting me
+convert this promise chain to async await with try catch
+why is the deepest frame not where my bug is
+iperf3 says connection refused on port 5201, server side is running, what gives
+how do i replay a request from chrome devtools as curl
+netstat is deprecated right, should I just switch everything to ss
+how do i see the actual execution plan for this query and read it
+how to copy files out of a container that won't start
+difference between pip install and pip install --user
+convert this callback api to promises without breaking the v1 interface
+how do i delay a service start until another one finishes
+what's causing this deadlock between two simple UPDATE statements
+write a jq command that outputs only the values of a key as plain lines not json
+rewrite this query to avoid the nested SELECT, it's ugly
+replace all punctuation except apostrophes in a string using regex
+explain what reflog actually does, like I'm 5
+what's the curl flag for ignoring ssl certs again
+make this script handle missing json keys gracefully
+whats the gotcha with structuredClone vs json parse stringify roundtrips
+how do i unstage everything i just added
+write a one-liner to grep for a string in every .py file ignoring venv
+write a bare minimum test that would catch this regression
+my try/except is swallowing real errors, how should I write it
+what does KillMode=mixed actually do and is default killing my child processes
+is it ok to have a test with no assertions just to check it runs
+whats the best way to paginate without offset getting slow on deep pages
+write a test that verifies the function returns null on bad input
+what does this TypeError null reference actually point to in my code
+grep for multiple patterns at once, or condition
+why does \d match unicode digits in python but not in some other languages
+why is my npm install resolving different versions on ci than locally
+explain garbage collection, two sentences, no jargon
+wheres the memory leak in this script, it grows forever in a loop
+make clean doesn't remove my build dir, what am I doing wrong
+should I use pip freeze or pip compile for locking dependencies
+kubernetes pod crashloopbackoff where do I even start looking
+my except clause re-raises weirdly, what did i do wrong
+why is this index not being used by the optimizer
+one-liner to count lines in all .py files in a dir recursively
+how do i name small test cases so they dont all look the same
+container says port already in use but nothing is listening on that port, what gives
+what does "at Module._compile" mean in my node error
+docker compose networking broken, containers can't reach each other by name
+why do I get IndexError here when the list clearly has items
+why does systemctl status say my unit is inactive dead
+how do I find which queries are slowest on postgres
+how do i stop make from echoing the command before running it
+explain this stack trace like i'm five
+write a regex that matches a valid email address and explain each part
+how do I see what I lost in a stash pop conflict
+how do i pass arguments to an ExecStart binary in a unit file
+stack trace ends at a promise how do i find where it started
+why does the stack trace point to my catch block instead of where it broke
+why did my service restart 50 times overnight, where do i find that history
+how do I match multiline strings in grep, dot doesn't seem to cross newlines
+how do i get import.meta.dirname equivalent in cjs
+explain what this segfault backtrace is telling me
+how do i safely remove items from a dict while looping over it
+how do I match everything between two tags without nesting problems
+write a sleep function that actually cancels properly when i need to abort
+write a oneshot unit that runs a backup script once at boot
+use jq to split one big json array into multiple smaller files
+how do i list all running processes sorted by memory usage
+regex to validate email that doesn't reject plus signs in local part
+combine find and grep to search for a string only in .py files
+snippet for retrying failed fetch requests with backoff
+why does python just say KeyError without telling me where
+read this nginx error log and tell me what's wrong
+rsync excluding multiple patterns, syntax is confusing me
+refactor to use pathlib instead of os.path, my code is all over the place with both
+why is jq saying "Cannot index string with...
+strip html tags but keep text content, one regex or multiple passes
+awk one-liner to sum up the values in column 5
+keep getting 429, how do I retry with backoff in curl or a script
+what's the fastest way to test a single edge case without mocking everything
+write me a one-liner to list all listening TCP ports with their PIDs
+write a query to find duplicate emails in a users table
+give me curl flags to save response headers and body separately
+what does exit code 139 mean, is that a segfault
+what does this weird error code mean and where do I look it up
+how do i parse a csv that has commas inside quoted fields
+eslint complaining about unused vars in destructuring, how to allow that
+decipher this java exception chain for me, which line actually caused it
+unstage everything i just added
+explain why my left join turned into an inner join results
+explain what a docker image vs container is, two sentences max
+explain ACID in two sentences
+why is my ts build so slow, any common causes
+explain what a race condition is in two sentences
+get env vars into a systemd service, PATH keeps coming out wrong
+how do i handle nulls in this count, its returning 0 but should be higher
+how do I fix "you have divergent branches" without losing work
+show me the 10 largest files anywhere under my home dir using find or du
+why does csv writer in python add blank lines between rows on windows
+best way to stream a 10gb json file without blowing up memory
+how do I keep small tests from duplicating the same setup everywhere
+why does the error point to a line in node_modules instead of my code
+how to use xargs when filenames have spaces in them
+how do i see logs for a systemd service from yesterday
+can a test be too small, like testing language built-ins
+use jq to update one key deep in a json file without rewriting everything by hand
+regex to match an IP address, should I bother validating the 0-255 range or is it overkill
+whats a lookahead that checks if a string ends with .zip but doesnt consume it
+can I move a virtualenv to another directory without breaking it
+whats the cleanest deep clone for json-safe objects, no lodash
+why is my list index out of range when the list clearly has items in it
+why does iperf3 default to one stream and how do I parallelize it
+why wont my generator work twice
+why does the API work in curl but time out in my Go client
+convert tsv to csv and handle fields that contain the delimiter
+grep case insensitive but only whole words not substrings
+clean up this function, too many params
+eslint keeps complaining about unused vars in for loops, how do i disable that rule
+how do I see which files changed in the last 24 hours
+can i change a port mapping without recreating the container
+how do I debug a container that works locally but fails in k8s
+how do I make systemd start my service after the network is actually up not just network.target
+accidentally committed a huge file how do i remove it from history
+why is my query suddenly slow after adding that index
+is this error fatal or something I can safely catch and ignore
+why does my container get a different ip after restart and break things
+how do I set up one Makefile target that recreates the venv and installs requirements
+awk remove duplicate lines based on first field
+need a pattern for ISO dates but reject invalid ones like feb 30
+why does floating point 0.1 + 0.2 not equal 0.3, short answer
+why is my git pull creating weird merge commits
+how do I export an npm package installed locally so another project can use it
+explain this null pointer error like i'm five
+why does my csv writer double the quote characters
+why does git say my branch is ahead by 3 and behind 5 after pull
+why do people keep saying "composition over inheritance," give me two sentences
+why is my post request sending form data instead of json
+my service enters activating state forever, how do i debug that
+what headers do I need for content-type when uploading a file
+exited with code 1 but logs are empty where else can I look
+what does Rec-Q and Send-Q mean in ss output when it's 0 vs nonzero
+typescript generic that requires at least one key from an interface
+write me a Makefile that only rebuilds changed c files
+what's the point of npm ci vs npm install
+write a make target that always reruns regardless of file timestamps
+how do i stop pip from installing everything globally by default
+rename these variables to something less awful
+why does \d not match unicode digits in some languages
+why does pip resolve dependencies so slowly and break everything
+how do I use ss to see only established connections on port 443
+why does my rebase keep replaying commits I already merged
+how do i add an environment variable to a systemd unit
+crons not firing for my user but works in root's crontab, what gives
+why is my join returning duplicate rows
+how do i publish a scoped package publicly
+what is a middleware, two sentences
+csv with inconsistent column counts per row, how do I not crash
+write me a curl command that posts JSON with an auth header
+why does COUNT return 0 for empty groups but the row disappears with a WHERE
+entrypoint script gets killed by signal before cleanup runs why
+what does the dig +trace output actually mean, walked me through it
+should small tests for one module share fixtures or each have their own
+write a command to exec into a running container and open bash
+write a tiny pytest for this function that just adds two numbers
+extract all urls from a json file using jq
+why is big O even a thing, two sentences
+make keeps saying "nothing to be done" but I changed a file, what gives
+why does my INSERT fail with duplicate key when the row isn't there
+whats the fastest way to dedupe a huge table
+write a dockerfile healthcheck for a node app that checks an http endpoint
+how do I copy a file out of a container that isn't running anymore
+how do I check TXT records for spf with dig
+explain the difference between process and thread in 2 sentences
+csv with semicolon delimiter, pandas keeps splitting on commas, why
+what's the point of virtual DOM, two sentences
+how do i optimize a like query on millions of rows
+stash my changes then forgot them, how do i get them back
+whats the difference between ss -tlnp and netstat -tlnp output
+how do I query a specific nameserver with dig instead of whatever's in resolv.conf
+ss -s output meaning, what counts as "estab" vs "closed
+jq syntax for selecting array elements where a field is greater than some number
+why does pip resolve to an old version when a newer one exists
+how do i name tests so future me knows what broke
+how do i parse csv with embedded commas and quoted fields without pulling in a library
+what does npm ci actually do differently from npm install
+what's the difference between 401 and 403 in plain english
+explain graphql in two sentences, my brain is fried
+npm ci keeps failing with lockfile mismatch, what's the fix
+find all empty directories and delete them
+what does -L and -i and -s all do, I always forget
+how do I override a vendor unit file without editing it directly
+why does my inner join return fewer rows than the left table
+my query returns duplicate rows after adding a join how do i fix it
+node script exits before my promises resolve, what am i missing
+recover a commit that disappeared after reset using reflog
+how to pretty print json from a curl response into a file
+why does it say undefined is not a function when I defined it
+fastest way to check if an object is empty in modern js
+how do i split this 200 line function
+why do i keep getting connection reset when hitting the staging api
+how do i keep test data from getting huge and unmaintainable
+why does my test pass locally but fail in CI with the same code
+make is running my target twice, what causes that
+rewrite commit message of an older commit
+jq filter to get all values of a key from an array of objects
+how do i match everything between two tags without being greedy
+cherry pick a commit from another branch
+how many edge cases is enough before im over-testing
+explain event loop to me real quick, keep it short
+find and chmod all directories but not files
+why does systemd say my service entered an inactive dead state
+awk to print the second column but only when the first matches a pattern
+why does this query work locally but fail on production
+how do I know which exception handler caught this
+should i use get with default or a try/except here
+write something that finds duplicate words like "the the" in text
+npm keeps resolving a transitive dependency to a vulnerable version, how do I force override it
+how do I copy a request from chrome devtools into a working curl command
+why does grep -r hang on huge directories
+jest says my mock isn't a function but i called jest.mock
+when should a small test case be enough coverage for shipping
+how do i set up a systemd timer with random delay so jobs dont all fire at once
+how to type a function that returns itself but chained
+why does my container lose data after restart
+iperf3 says the server is busy, can I run multiple tests at once
+is there a cleaner way to do optional chaining with array indexes
+my union drops duplicates but I need them, should I use union all
+convert this for loop to a set based sql query
+accidentally committed a 500mb node_modules folder, how do i remove it from history
+whats wrong with my default mutable argument
+why does xargs break on filenames with spaces and how do i fix it
+jq how do i keep only certain keys from each object in an array
+show me how to inspect a container's memory and cpu usage live
+shortest way to deep clone an object without structuredClone
+what does hydration mean in nextjs
+why does systemd kill my service when i close the terminal
+why is my npm install downloading the whole internet for a hello world
+how do i test async code without waiting forever
+copy a file out of a stopped container how
+explain what a race condition is without saying race condition, two sentences
+this error only shows up in prod logs, how do i reproduce it locally
+how to abort a rebase that's stuck halfway
+diff between docker stop and docker kill and when to use each
+why does this generator get exhausted after one use
+why is my node_modules like 800mb, how do I find the bloat
+why is dig giving me a SERVFAIL when nslookup works fine
+why does my find -name *.log do nothing without quotes
+how do I rebase without creating duplicate commits
+give me a snippet to deep clone an object without lodash
+pip freeze gives me garbage versions like 1.0.3, how do I get clean requirements.txt
+how do i export a package-lock to a shrinkwrap or vice versa
+make this old-style class check isinstance instead of type
+this error message is 500 lines long, what's the actually important part
+what's the smallest possible test to verify this API route returns 200
+git reset --hard vs git revert which one wont destroy my teammates work
+curl vs wget when should I care
+why do I get CORS error only on delete requests
+npm keeps resolving an ancient version of a transitive dependency, how do I force the new one
+how do I see what's actually inside an image layer by layer
+what's the difference between Type=simple and Type=forking and when do I care
+replace this manual counter with Counter
+why is git push rejected non fast forward
+why do people say composition over inheritance, brief
+my virtualenv is activated but pip still installs to system python, what gives
+two sentence explanation of what an ORM is
+docker network conflict, container cant talk to another one on the same host
+why does my default argument keep growing between calls
+jq delete a key from every object in a file
+why does my replace with $1 not work in java
+what is a race condition again, two sentence version
+why is my container resolving localhost to itself instead of the host
+docker build hangs at apt-get update forever
+how to activate a virtualenv in VS Code automatically per project
+sed replace everything after the last colon on each line
+write a systemd unit file for a node app with env vars
+can I skip test cases for trivial code or is that a smell
+image builds fine locally but fails in registry pipeline with no such file
+give me two sentences on what a reverse proxy does
+explain what this regex is doing: ^(?:[a-f0-9]{2}:){5}[a-f0-9]{2}$
+whats the dig equivalent of nslookup type=MX
+why does my regex for matching URLs hang on long strings, is it catastrophic backtracking?
+what does retry-after header mean and how do I honor it
+use jq to rename a key in every object of an array
+how do i run a script every 15 minutes with cron
+make recipe runs twice, is it my tabs or the shell
+whats the fastest way to dedupe an array of objects by id
+how do I debug a query that hangs forever with no error
+how do I run iperf3 in server mode and keep it running after I disconnect
+how do i concatenate rows into a single string with commas
+why does dig give me a different ip than nslookup for the same domain
+entrypoint script keeps failing, how do i debug it step by step
+explain what "callback is not a function" means in my code
+find all files modified in the last 7 days and copy them somewhere
+how do I match a word boundary but only when the previous char is a digit
+how do I test UDP throughput properly with iperf3, getting weird packet loss numbers
+convert csv to json array using python, header row as keys
+compare two json files and show only the differences
+how do I get pip to stop yelling about pip version being outdated inside a venv
+write a typescript type for a function with optional args and a default
+how do I optimize a query with multiple OR conditions on different columns
+how do I send multipart form data with curl when one field is a file
+what does this Rust borrow checker error mean, decode it for me
+this delete with subquery is taking forever any faster way
+why does my container exit immediately with code 137
+select distinct is super slow on a huge table, better way
+rsync dry run flag again, i always forget it
+restart my service whenever a config file changes without a full restart
+how do I check tcp retransmits with ss
+xargs with no input still runs the command, how do I stop that
+pip install fails with permission denied, do I really need sudo
+convert this regex to work with unicode letters instead of just a-z
+give me a snippet to deep clone an object that isn't JSON.parse hack
+write a regex that matches a valid email address but doesn't reject plus signs in the local part
+how do I change the message of a commit that's already pushed
+how do i promisify a callback api where the callback gets multiple args
+how do I find records in table A that don't exist in table B
+how do i resend a request from chrome devtools as curl
+pip freeze dumps garbage comments and local paths, how do I get a clean requirements file
+write me a debounce that doesn't lose typescript generics
+how do I inspect what headers a server is actually returning
+convert this mysql query to postgres, the date functions are killing me
+crontab syntax for every 15 minutes except during 2-4am
+jq slurp vs normal input, when do i actually need -s
+how do i replace only the nth occurrence of a pattern in a string
+explain git reflog like im exhausted
+why does make say target is up to date but the file changed
+how do I tell if the server is gzipping or my client is double-decompressing
+how do i run a script as root on boot with systemd
+how can I get a full stack trace instead of just "undefined is not a function
+how do I pass an argument to a make target
+what is a deadlock, two sentences, assume i'm sleep deprived
+my service starts before the network is up and fails, how do i fix ordering
+how do I escape special characters in a user-provided string before matching
+awk print last field of each line
+why does the stack trace show library code instead of my code
+npx keeps asking me to install a package i already have globally
+how do i test async code without making the test slow
+quick one — what's a closure and why do I care
+git reset --hard vs git revert when should I use which
+how do I write a test for a function that returns random values
+why is docker compose networking different from docker run networking
+whats the difference between ?? and || again, keep getting burned by 0
+is netstat deprecated on newer distros or am I just missing net-tools
+how do I test a race condition without flaky sleeps everywhere
+extract several fields from json with jq and output them as tsv
+how do i edit a systemd unit without it getting overwritten on update
+what does immutable actually mean, two sentences
+how do i see what a systemd unit actually executed last time it ran
+write a table driven test for this validator with a few cases
+why is my stack trace truncated, how do I see the whole thing
+why is my strip not removing the newline
+can i write a test that just checks the function doesnt crash
+why is node_modules 800MB, can I prune this somehow
+how do I find all connections to a specific ip with ss
+what does the p flag do in python regex, saw it in some code
+why does my code work in the repl but fail when i run the script
+my fetch gets a json parse error but the api looks fine, what now
+why does my proxy strip my authorization header
+why is my git status showing files i never touched
+how do i find duplicate rows in a table
+pip says the package needs a different python version, can I force it
+query works locally but fails in prod with collation errors, why
+awk print second column but my file uses semicolons not tabs
+explain the difference between the error message and the stack trace
+why does my ORDER BY on an alias fail in a WHERE clause
+whats this "ECONNRESET" error about and which side caused it
+whats the difference between git reset --soft and --mixed
+explain what middleware is in two sentences, web dev context
+cron job works from CLI but fails in crontab, what gives
+journalctl is spamming me, how do i filter to just errors from my service
+why does compose recreate my whole stack when I only changed one service
+regex to match a url but ignore ones inside markdown links
+netstat -anp says permission denied what am I missing
+why is my query so slow when it runs fine on a small table
+difference between rank row_number and dense_rank
+why is my count returning 0 when the table clearly has rows
+write me a Makefile that builds a C project and cleans up object files
+journalctl command to follow logs for one specific service with grep
+node won't let me import json, says module type error
+regex to find duplicate words in text like "the the
+make a throttle that drops extra calls instead of queueing them
+how do I check what's eating disk space in docker
+why does make think my up-to-date file needs rebuilding, timestamps look fine
+why does the deepest frame in the trace not match any file i have
+tar a directory but exclude node_modules, keep forgetting the syntax
+write a curl command with a bearer token and json body
+my dict comprehension is giving wrong keys, whats off here
+grep only the matched part not the whole line
+what's causing this "cannot read property of undefined" error
+how do i write a fast test for code that hits a database
+what's memoization in two sentences, no math notation
+how do i undo a merge that already went through
+how do i get rid of merge commits in my history
+what's the right way to pin exact versions in requirements.txt
+write a regex to validate an email address that actually works with weird TLDs
+give me a simple pytest for checking if my parser handles empty input
+write a quick unit test for a function that returns null sometimes
+delete empty directories recursively, one liner pls
+convert this for loop with append into a list comprehension
+tar extract into a specific directory without cd-ing first
+how do I debug dns resolution failing inside a container
+fix my package-lock conflicts after a bad merge, I just want to install
+fix this off by one error in my slice
+read a json file line by line in python, it's jsonl not json
+what does "heap corruption detected" mean and where should I look
+how do i shrink this 60 line test into something readable
+what's the difference between authentication and authorization, short answer
+why do people keep saying "hydration" in react, two sentences
+how do i view environment variables inside a running container
+git push --force with lease vs force what's the difference
+my cron job works when i run it manually but not from crontab, what gives
+tell me what a promise is in two sentences
+how do I match a whole line only if it doesn't contain the word error
+write a systemd timer that triggers a service every 15 minutes
+how many test cases is reasonable for a 20 line function
+explain closures in two sentences like i'm tired and dumb rn
+make keeps saying "missing separator" what does that even mean
+turn this nested if mess into guard clauses
+ss -p needs root to show pids, any way around that
+whats the difference between the top and bottom of a stack trace
+what does the CLOSE-WAIT pileup in ss mean and whose fault is it usually
+why do minified production errors give useless stack traces and how do i fix that
+what does "pure function" mean, two sentences
+find which commit introduced a bug with bisect, walk me through it
+what does "connection reset by peer" actually mean here
+whats the flag for dig to query a specific resolver like 8.8.8.8
+how do i split on commas but ignore commas inside parentheses
+container keeps restarting in a loop where do i start debugging
+one-liner to count lines in all files matching a name
+xargs with commands that need extra arguments
+why is my order by ignoring my collation settings
+service starts on boot but can't find its config file, works fine manually
+how do i move the last 3 commits to a new branch because they shouldnt be on main
+ss shows way more connections than netstat did on the same box, why
+why is my pattern matching way more than i expected
+make -j keeps interleaving output, how do i see per-job logs
+how to replay an exact request someone captured in chrome devtools using curl
+my csv has commas inside quoted fields and everything breaks, help
+awk print second column but only when first column matches a number
+how do i check memory and cpu usage of a specific process over time
+write a bash script that converts all csv files in a folder to json
+build a regex for passwords requiring uppercase, number, and symbol, explain the lookahead parts
+need regex to capture text between double quotes but ignore escaped quotes
+why does my left join drop rows when i add a filter on the right table
+how do I get make to run jobs in parallel
+what's the right way to type fetch response json in ts
+explain garbage collection but make it short
+why does grep -r keep matching binary files, how do i skip those
+whats the point of satisfies in typescript, when do i actually need it
+why does process.env.my_var come back undefined even though its set
+write a regex for validating ipv4 and ipv6 addresses
+how do i deep clone an object without pulling in lodash
+cherry-pick gave me a bunch of conflicts, easiest way to abort the whole thing
+give me two sentences on what a mutex does
+how do I make curl ignore certificate errors locally
+sed to delete blank lines from a file in place, macOS version if it matters
+why is my container exiting immediately with code 137, nothing useful in the logs
+why am I getting "module not found" when the file exists
+fastest way to deep clone an object without structuredClone
+rewrite this nested if-else mess as match-case or something cleaner
+this closure captures the wrong variable, what did i do wrong
+grep case insensitive but also whole word match only
+whats the smallest test I can write to prove this bug exists
+why does xargs choke on filenames with spaces
+how do i debug oomkilled in kubernetes pods running my image
+npm scripts vs just using make, when does it matter
+how do i set a cookie in curl and reuse it for the next request
+python csv reader is mangling unicode characters, how do I fix the encoding
+how do i get a shell into a container that exits right after starting
+regex to validate a phone number with optional country code and formatting
+write a test that checks this returns null for bad input
+explain garbage collection in two sentences, no jargon
+how do I inspect what headers my fetch call is actually sending
+write a Makefile that only rebuilds changed c files, im sick of full rebuilds
+rsync dry run flag so I can see what would change before syncing
+stop a process gracefully with a timeout then kill it in a bash script
+why does the stack trace show library code instead of my function
+why does tsc compile fine but node throws cannot use import statement outside a module
+why does my union return duplicates when union all doesn't
+npm ci vs npm install in CI, does it actually matter
+how do I write a regex that fails if a string contains a substring
+why is my service stuck in activating state
+parse a json log file and pull out all entries with a specific error code
+why does docker build keep reusing cache when I changed the file
+rsync dry run flag again? always forget which one
+npm ci vs npm install, when do i actually use ci
+how do i write a test for code that throws
+how do I read a csv where the delimiter is a tab but some fields contain tabs too
+jq: how do I select entries where a nested field like .user.name exists
+explain the browser render pipeline in two sentences
+why do I get 400 bad request when the JSON looks fine to me
+how do I delete empty directories recursively
+jq select where value contains a substring case insensitive
+make a regex that finds duplicate words in a sentence
+what's the cleanest way to flatten nested arrays with es2022
+my sort is unstable for some reason, ideas?
+explain the halting problem in two sentences, no fluff
+revert a merge commit without breaking everything
+got cannot stop container error device or resource busy what now
+whats wrong with this date comparison, its returning weird results
+dig returns no answer but the domain resolves in my browser, what gives
+how do i type a function that returns different types based on a string param
+how do I send a bearer token with curl without putting it in my shell history
+journalctl is spamming me, how do i filter to just my service
+how do i stop csv reader from choking on a BOM
+run multiple npm scripts in parallel without installing concurrently
+how do I send form data vs json with curl, which flag
+I committed to main instead of my feature branch, help
+my csv has weird encoding issues, utf-8 bom thing, how do i fix that
+quick explanation of what a hashmap is doing internally
+what flags do I use to see udp traffic in ss
+how do i override a vendor systemd unit without editing the original file
+why does git stash say I have no local changes but my file looks modified
+jq syntax for accessing array element nested 3 levels deep
+read a csv and update a database row by row without it taking forever
+how to diff two csv files ignoring row order and show only changed rows
+what does detached HEAD mean and how do I get out of it
+how do i test a function that just prints stuff
