@@ -33,6 +33,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+import telemetry
 from responses import ResponseBuilder, error_body, responses_to_chat
 from routing import (BASETEN, CACHE, CLUSTER, DEFAULT_CLOUD_ORDER, Breaker, Decision,
                      RouterConfig, Tier, cluster_state, continuation_body,
@@ -80,6 +81,9 @@ class Settings(BaseSettings):
     cloud_tools_model: str = ""
     cloud_tier_order: str = ",".join(DEFAULT_CLOUD_ORDER)
     tool_tier: str = ""
+
+    sentry_dsn: str = ""                  # empty = telemetry fully off (safe default)
+    sentry_environment: str = "demo"
 
     size_threshold: int = 2048
     first_token_timeout: float = 8.0
@@ -267,6 +271,7 @@ class Router:
         record = {**decision.as_log(), "served_by": served_by, "stream": stream,
                   "latency_ms": _ms(t0), "fallback": fallback, "error": error or None, **extra,
                   "ts": time.time(), "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())}
+        telemetry.log_decision(record)
         try:
             with open(self.s.decision_log, "a") as fh:
                 fh.write(json.dumps(record) + "\n")
@@ -324,16 +329,20 @@ class Router:
             if up != CLUSTER and len(plan) > 1 and self.st.breaker.is_open(up, now):
                 last_err = f"{up}: breaker open"
                 continue
-            try:
-                result = await attempt(up, payload)
-            except UPSTREAM_ERRORS as e:
-                last_err = _err(e)
-                if up != CLUSTER and self.st.breaker.record_failure(up, now):
-                    self.st.fallbacks[f"breaker_open:{up}"] += 1
-                continue
-            if up != CLUSTER:
-                self.st.breaker.record_success(up)
-            return i, up, result, last_err
+            with telemetry.chat_span(up, payload.get("model", ""), i) as span:
+                try:
+                    result = await attempt(up, payload)
+                except UPSTREAM_ERRORS as e:
+                    last_err = _err(e)
+                    telemetry.mark_failed(span, last_err)
+                    if up != CLUSTER and self.st.breaker.record_failure(up, now):
+                        self.st.fallbacks[f"breaker_open:{up}"] += 1
+                    continue
+                if isinstance(result, dict):
+                    telemetry.record_usage(span, result.get("usage"))
+                if up != CLUSTER:
+                    self.st.breaker.record_success(up)
+                return i, up, result, last_err
         return None, None, None, last_err
 
     async def post_blocking(self, upstream: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -435,6 +444,7 @@ class Router:
 
     async def chat(self, body: dict[str, Any], headers: dict[str, str]):
         decision = route(body, headers, self.st.cluster_status, self.cfg)
+        telemetry.tag_request(decision, self.st.cluster_status)
         self.st.counts[(decision.upstream, decision.reason)] += 1
         t0 = time.time()
         if body.get("stream"):
@@ -442,7 +452,8 @@ class Router:
         return await self.handle_blocking(body, decision, t0)
 
     async def handle_blocking(self, body: dict[str, Any], decision: Decision, t0: float):
-        i, up, data, last_err = await self.first_success(self.fallback_plan(body, decision), self.post_blocking)
+        with telemetry.agent_span(decision, self.st.cluster_status):
+            i, up, data, last_err = await self.first_success(self.fallback_plan(body, decision), self.post_blocking)
         if data is None:
             return self.cached_or_error(body, decision, stream=False, last_err=last_err, t0=t0)
         fell_back = i > 0
@@ -456,7 +467,8 @@ class Router:
         """Pre-commit: hold headers until an upstream produces its first token, retrying
         invisibly. Post-commit: bytes are on the wire, so a mid-stream death is recovered
         by asking another tier to continue from the partial text."""
-        i, up, acquired, last_err = await self.first_success(self.fallback_plan(body, decision), self.acquire)
+        with telemetry.agent_span(decision, self.st.cluster_status):
+            i, up, acquired, last_err = await self.first_success(self.fallback_plan(body, decision), self.acquire)
         if acquired is None:
             return self.cached_or_error(body, decision, stream=True, last_err=last_err, t0=t0)
         gen, buffered = acquired
@@ -465,6 +477,7 @@ class Router:
             self.st.fallbacks[f"pre_commit:{last_err[:40]}"] += 1
         self.st.served[up] += 1
         ttft = _ms(t0)
+        telemetry.set_ttft(ttft)
         relay = self.relay(body, decision, gen, buffered, up, ttft=ttft, t0=t0,
                            fallback=fell_back, last_err=last_err)
         return StreamingResponse(relay, media_type="text/event-stream",
@@ -628,6 +641,7 @@ class Router:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = load_settings()
+    telemetry.init(settings.sentry_dsn, settings.sentry_environment)
     # http2: cloud tiers multiplex on one connection; the Pi root falls back to 1.1
     client = httpx2.AsyncClient(
         limits=httpx2.Limits(max_connections=64, max_keepalive_connections=16), http2=True,

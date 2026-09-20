@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import shlex
 import signal
@@ -46,8 +47,53 @@ def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
+try:
+    import sentry_sdk
+except ImportError:                       # Pis without the SDK: telemetry is a no-op
+    sentry_sdk = None
+
+_pylog = logging.getLogger("supervisor")
+_SENTRY_ON = False
+
+
+def sentry_init_from_env() -> None:
+    """Enable Sentry Logs + error capture if SENTRY_DSN is set. Never raises."""
+    global _SENTRY_ON
+    dsn = os.environ.get("SENTRY_DSN", "")
+    if not (sentry_sdk and dsn):
+        return
+    try:
+        try:
+            sentry_sdk.init(dsn=dsn, environment=os.environ.get("SENTRY_ENVIRONMENT", "demo"),
+                            enable_logs=True, traces_sample_rate=0.0)
+        except TypeError:                 # older SDK without enable_logs
+            sentry_sdk.init(dsn=dsn, environment=os.environ.get("SENTRY_ENVIRONMENT", "demo"),
+                            traces_sample_rate=0.0)
+        _SENTRY_ON = True
+        log("sentry telemetry enabled")
+    except Exception:  # noqa: BLE001 - observability must not stop the supervisor
+        pass
+
+
+def sentry_note(msg: str, level: str = "info") -> None:
+    """Ship a supervisor event to Sentry (log + message for warning/error). Never raises."""
+    if not _SENTRY_ON:
+        return
+    try:
+        getattr(_pylog, level, _pylog.info)(msg)
+        if level in ("warning", "error"):
+            sentry_sdk.capture_message(msg, level=level)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def log(msg: str) -> None:
     print(f"{now_iso()} {msg}", flush=True)
+    if _SENTRY_ON:
+        try:
+            _pylog.info(msg)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ------------------------------------------------------------------ pure logic
@@ -292,11 +338,17 @@ class Supervisor:
         self.events.append({"t": time.time(), "msg": msg})
 
     def set_state(self, state: str, reason: str) -> None:
-        if state != self.state:
+        changed = state != self.state
+        if changed:
             self.state_since = time.time()
         self.state = state
         self.state_reason = reason
         self.event(f"state={state}: {reason}")
+        if changed:
+            level = {HEALTHY: "info", DEGRADED: "warning",
+                     RESTARTING: "warning", DOWN: "error"}.get(state, "info")
+            sentry_note(f"cluster state -> {state}: {reason} "
+                        f"(active={len(self.active)}, restarts={self.restarts})", level)
 
     @property
     def serving(self) -> bool:
@@ -761,6 +813,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    sentry_init_from_env()
     cfg = config_from_args(args)
     sup = Supervisor(cfg)
     if args.print_command:
