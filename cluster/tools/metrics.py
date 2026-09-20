@@ -141,7 +141,7 @@ class Node:
 
     def __init__(self, host, user, interval, ssh_key=None, name=None, password=None):
         self.host = host
-        self.name = name or host.split(".")[0]
+        self.name = name or short_name(host)
         self.user = user
         self.interval = interval
         self.ssh_key = ssh_key
@@ -291,6 +291,30 @@ class Node:
 
 # ---------------------------------------------------------------- side pollers
 
+def short_name(host):
+    """pi-node-1.local -> pi-node-1; 192.168.50.11 stays 192.168.50.11."""
+    return host[:-6] if host.endswith(".local") else host
+
+
+CSV_HEADER = [
+    "ts_iso", "ts_unix", "node", "state", "cpu_pct", "temp_c",
+    "arm_mhz", "throttled_hex", "live_flags", "past_flags",
+    "mem_avail_mb", "load1", "reconnects", "cluster_status",
+    "tps", "tps_source", "event", "cluster_nodes", "load_s",
+]
+
+
+def parse_status(raw):
+    """(state, 'active/total', 'load seconds') from the supervisor's /status document
+    (cluster/supervisor/status.example.json). Missing fields become '' rather than errors."""
+    state = str(raw.get("state", raw.get("status", "?")))
+    a, t = raw.get("nodes_active"), raw.get("nodes_total")
+    nodes = f"{a}/{t}" if a is not None and t is not None else ""
+    ls = (raw.get("root") or {}).get("load_seconds")
+    load_s = f"{ls:.1f}" if isinstance(ls, (int, float)) else ""
+    return state, nodes, load_s
+
+
 class StatusPoller(threading.Thread):
     """Polls Person 1's supervisor status JSON over HTTP."""
 
@@ -299,6 +323,8 @@ class StatusPoller(threading.Thread):
         self.url = url
         self.interval = interval
         self.value = "n/a"
+        self.nodes = ""          # "2/4" active/total from the supervisor
+        self.load_s = ""         # seconds the last launch took to become ready
         self.raw = {}
         self._stop = threading.Event()
 
@@ -308,9 +334,9 @@ class StatusPoller(threading.Thread):
                 with urllib.request.urlopen(self.url, timeout=2) as r:
                     data = json.loads(r.read().decode())
                 self.raw = data if isinstance(data, dict) else {}
-                self.value = str(self.raw.get("state", self.raw.get("status", "?")))
+                self.value, self.nodes, self.load_s = parse_status(self.raw)
             except Exception:
-                self.value = "unreachable"
+                self.value, self.nodes, self.load_s = "unreachable", "", ""
             self._stop.wait(self.interval)
 
     def stop(self):
@@ -411,7 +437,8 @@ def state_color(s):
     return {"ok": C.GRN, "connecting": C.YEL, "stale": C.YEL, "down": C.RED}.get(s, C.DIM)
 
 
-def render(nodes, status, tps_src, tps_val, marks, started, stale_after, use_color):
+def render(nodes, status, tps_src, tps_val, marks, started, stale_after, use_color,
+           status_nodes="", status_load=""):
     cols = shutil.get_terminal_size((100, 30)).columns
     out = []
     elapsed = time.time() - started
@@ -421,7 +448,8 @@ def render(nodes, status, tps_src, tps_val, marks, started, stale_after, use_col
     bits = [hdr]
     if status is not None:
         sc = C.GRN if status == "healthy" else (C.RED if status in ("down", "unreachable") else C.YEL)
-        bits.append("supervisor=" + color(status, sc, use_color))
+        label = status + (f" {status_nodes}" if status_nodes else "") + (f" load={status_load}s" if status_load else "")
+        bits.append("supervisor=" + color(label, sc, use_color))
     if tps_val is not None:
         bits.append(f"tok/s={color(f'{tps_val:.1f}', C.CYA, use_color)} ({tps_src})")
     else:
@@ -512,8 +540,8 @@ def main():
     use_color = not args.no_color and sys.stdout.isatty()
     hosts = [h.strip() for h in args.nodes.split(",") if h.strip()]
     names = [n.strip() for n in args.names.split(",")] if args.names.strip() else []
-    # default display name: strip the .local suffix off the hostname
-    names += [hosts[i].split(".")[0] for i in range(len(names), len(hosts))]
+    # default display name: strip the .local suffix off the hostname; IPs stay whole
+    names += [short_name(hosts[i]) for i in range(len(names), len(hosts))]
 
     nodes = [Node(h, args.user, args.interval, args.ssh_key, names[i], password)
              for i, h in enumerate(hosts)]
@@ -538,17 +566,19 @@ def main():
 
     # CSV
     writer = fh = None
+    csv_lock = threading.Lock()   # marker rows come from the ENTER thread
     if args.csv:
         new = not os.path.exists(args.csv) or os.path.getsize(args.csv) == 0
+        if not new:
+            with open(args.csv, newline="") as check:
+                existing = next(csv.reader(check), [])
+            if existing != CSV_HEADER:
+                sys.exit(f"{args.csv} has a different column layout ({len(existing)} columns, "
+                         f"expected {len(CSV_HEADER)}); use a new filename")
         fh = open(args.csv, "a", newline="")
         writer = csv.writer(fh)
         if new:
-            writer.writerow([
-                "ts_iso", "ts_unix", "node", "state", "cpu_pct", "temp_c",
-                "arm_mhz", "throttled_hex", "live_flags", "past_flags",
-                "mem_avail_mb", "load1", "reconnects", "cluster_status",
-                "tps", "tps_source", "event",
-            ])
+            writer.writerow(CSV_HEADER)
 
     marks = {"n": 0}
     stop = threading.Event()
@@ -567,11 +597,12 @@ def main():
             label = label.strip() or f"mark-{marks['n']}"
             if writer:
                 now = time.time()
-                writer.writerow([
-                    datetime.now(timezone.utc).isoformat(), f"{now:.3f}", "-", "-",
-                    "", "", "", "", "", "", "", "", "", "", "", "", label,
-                ])
-                fh.flush()
+                with csv_lock:
+                    writer.writerow([
+                        datetime.now(timezone.utc).isoformat(), f"{now:.3f}", "-", "-",
+                        "", "", "", "", "", "", "", "", "", "", "", "", label, "", "",
+                    ])
+                    fh.flush()
 
     threading.Thread(target=mark_reader, daemon=True).start()
 
@@ -594,31 +625,36 @@ def main():
                                           "rootlog" if tailer else "none")
 
             frame = render(nodes, status, tps_src, tps_val, marks["n"],
-                           started, stale_after, use_color)
+                           started, stale_after, use_color,
+                           status_poller.nodes if status_poller else "",
+                           status_poller.load_s if status_poller else "")
             sys.stdout.write("\033[H" + frame + "\033[J")
             sys.stdout.flush()
 
             if writer:
                 now = time.time()
                 iso = datetime.now(timezone.utc).isoformat()
-                for n in nodes:
-                    st, s, rc, _ = n.snapshot(stale_after)
-                    writer.writerow([
-                        iso, f"{now:.3f}", n.name, st,
-                        fmt(s.get("cpu_pct"), ".2f", ""),
-                        fmt(s.get("temp_c"), ".1f", ""),
-                        s.get("arm_mhz", "") if s.get("arm_mhz") is not None else "",
-                        hex(s.get("throttled", 0)) if s else "",
-                        ";".join(s.get("live_flags") or []),
-                        ";".join(s.get("past_flags") or []),
-                        s.get("mem_avail_mb", "") if s.get("mem_avail_mb") is not None else "",
-                        fmt(s.get("load1"), ".2f", ""),
-                        rc,
-                        status or "",
-                        f"{tps_val:.2f}" if tps_val is not None else "",
-                        tps_src, "",
-                    ])
-                fh.flush()
+                with csv_lock:
+                    for n in nodes:
+                        st, s, rc, _ = n.snapshot(stale_after)
+                        writer.writerow([
+                            iso, f"{now:.3f}", n.name, st,
+                            fmt(s.get("cpu_pct"), ".2f", ""),
+                            fmt(s.get("temp_c"), ".1f", ""),
+                            s.get("arm_mhz", "") if s.get("arm_mhz") is not None else "",
+                            hex(s.get("throttled", 0)) if s else "",
+                            ";".join(s.get("live_flags") or []),
+                            ";".join(s.get("past_flags") or []),
+                            s.get("mem_avail_mb", "") if s.get("mem_avail_mb") is not None else "",
+                            fmt(s.get("load1"), ".2f", ""),
+                            rc,
+                            status or "",
+                            f"{tps_val:.2f}" if tps_val is not None else "",
+                            tps_src, "",
+                            status_poller.nodes if status_poller else "",
+                            status_poller.load_s if status_poller else "",
+                        ])
+                    fh.flush()
 
             stop.wait(args.interval)
     finally:

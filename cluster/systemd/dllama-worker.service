@@ -2,14 +2,20 @@
 Description=distributed-llama worker
 After=network-online.target
 Wants=network-online.target
+# never give up restarting: systemd's default stops after 5 starts in 10s
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/distributed-llama
+Nice=-20
+OOMScoreAdjust=-500
 ExecStart=/home/pi/distributed-llama/dllama worker --host 0.0.0.0 --port 9998 --nthreads 4
-Restart=on-failure
+# always: a worker that exits cleanly after losing its root must come back for the supervisor to fold it in
+Restart=always
 RestartSec=2
+TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target

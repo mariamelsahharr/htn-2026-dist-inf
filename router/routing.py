@@ -29,6 +29,18 @@ CACHE = "cache"
 # Fallback order between cloud tiers.
 DEFAULT_CLOUD_ORDER = ("baseten", "gemini", "openai", "snowflake")
 
+# Supervisor states in which the cluster takes traffic.
+SERVING_STATES = ("healthy", "degraded")
+
+
+def cluster_state(status: dict[str, Any], min_local_nodes: int) -> str:
+    """Routing verdict from the supervisor's /status document (cluster/supervisor/status.example.json)."""
+    state = str(status.get("state") or status.get("status") or "unknown").lower()
+    nodes = status.get("nodes_active")
+    if state == "degraded" and isinstance(nodes, int) and nodes < min_local_nodes:
+        return "degraded_below_min"
+    return state
+
 
 @dataclass
 class Tier:
@@ -39,10 +51,21 @@ class Tier:
     api_key: str = ""
     handles_tools: bool = False
     is_local: bool = False
+    reasoning_effort: str | None = None   # OpenAI/Gemini knob; some models need "none" to accept tools
+    tools_model: str | None = None        # used instead of `model` when the request carries tools
+
+    def model_for_request(self, with_tools: bool) -> str:
+        return self.tools_model if (with_tools and self.tools_model) else self.model
 
     @property
     def chat_url(self) -> str:
         return self.base_url + "/chat/completions"
+
+    def payload(self, body: dict[str, Any], **overrides: Any) -> dict[str, Any]:
+        out = {**body, **overrides}
+        if self.reasoning_effort:
+            out["reasoning_effort"] = self.reasoning_effort
+        return out
 
     def headers(self) -> dict[str, str]:
         h = {"Content-Type": "application/json"}
@@ -92,8 +115,8 @@ class RouterConfig:
             return self.local_tier
         return self.tiers[upstream]
 
-    def model_for(self, upstream: str) -> str:
-        return self.tier(upstream).model
+    def model_for(self, upstream: str, with_tools: bool = False) -> str:
+        return self.tier(upstream).model_for_request(with_tools)
 
 
 @dataclass
@@ -209,7 +232,7 @@ def route(body: dict[str, Any],
                 upstream, reason = CLUSTER, reason + "_no_cloud"
         return Decision(upstream=upstream, reason=reason,
                         prompt_tokens=prompt_tokens, max_tokens=max_tokens,
-                        model_requested=model_req, model_sent=cfg.model_for(upstream),
+                        model_requested=model_req, model_sent=cfg.model_for(upstream, bool(body.get("tools"))),
                         forced=forced)
 
     # 0. explicit override (demo control)
@@ -221,9 +244,10 @@ def route(body: dict[str, Any],
     if body.get("tools") and cfg.tool_tier:
         return finish(cfg.tool_tier, "tools_attached")
 
-    # 2. cluster health
+    # 2. cluster health: healthy and degraded both serve; the supervisor's reduced
+    #    set is the whole point of degrading instead of dying
     status = (cluster_status or "unknown").lower()
-    if status != "healthy":
+    if status not in SERVING_STATES:
         return finish(heavy or BASETEN, f"cluster_{status}")
 
     # 3. size budget
@@ -247,6 +271,47 @@ def route(body: dict[str, Any],
 
 # ------------------------------------------------------------- fallback chain
 
+class Breaker:
+    """Per-upstream circuit breaker: after `failures` consecutive errors an upstream
+    is skipped for `cooldown` seconds, so a dead cloud does not cost a connect
+    timeout on every request. The cluster is exempt; the supervisor owns its health."""
+
+    def __init__(self, failures: int = 2, cooldown: float = 30.0) -> None:
+        self.failures = max(1, failures)
+        self.cooldown = cooldown
+        self.fails: dict[str, int] = {}
+        self.open_until: dict[str, float] = {}
+
+    def is_open(self, upstream: str, now: float) -> bool:
+        return self.open_until.get(upstream, 0.0) > now
+
+    def record_failure(self, upstream: str, now: float) -> bool:
+        """Returns True when this failure opened the breaker."""
+        n = self.fails.get(upstream, 0) + 1
+        self.fails[upstream] = n
+        if n >= self.failures:
+            self.open_until[upstream] = now + self.cooldown
+            self.fails[upstream] = 0
+            return True
+        return False
+
+    def record_success(self, upstream: str) -> None:
+        self.fails.pop(upstream, None)
+        self.open_until.pop(upstream, None)
+
+    def snapshot(self, now: float) -> dict[str, float]:
+        return {u: round(t - now, 1) for u, t in self.open_until.items() if t > now}
+
+
+def missing_required_tool_call(request: dict[str, Any], message: dict[str, Any]) -> bool:
+    """True when the client demanded a tool call (tool_choice required / named) and
+    the model answered in prose instead: for the local model that is a miss worth
+    falling through on, not an answer."""
+    choice = request.get("tool_choice")
+    demanded = choice == "required" or isinstance(choice, dict)
+    return demanded and not message.get("tool_calls")
+
+
 # Escalation reasons that make the cluster an invalid fallback.
 CLUSTER_UNFIT_REASONS = ("over_size_threshold", "tools_attached")
 
@@ -260,7 +325,7 @@ def fallback_chain(decision: Decision, cluster_status: str, cfg: RouterConfig) -
     for name in cfg.cloud_tiers():
         if name not in chain:
             chain.append(name)
-    cluster_ok = (cluster_status or "").lower() == "healthy"
+    cluster_ok = (cluster_status or "").lower() in SERVING_STATES
     if (CLUSTER not in chain and cluster_ok
             and not decision.reason.startswith(CLUSTER_UNFIT_REASONS)):
         chain.append(CLUSTER)
@@ -301,9 +366,10 @@ def models_payload(cfg: RouterConfig) -> dict[str, Any]:
     check the endpoint before sending real traffic, so it has to be right."""
     ids = [cfg.local_model, cfg.local_model + "-heavy"]
     for name in cfg.cloud_tiers():
-        model = cfg.tiers[name].model
-        if model and model not in ids:
-            ids.append(model)
+        tier = cfg.tiers[name]
+        for model in (tier.model, tier.tools_model):
+            if model and model not in ids:
+                ids.append(model)
     return {
         "object": "list",
         "data": [

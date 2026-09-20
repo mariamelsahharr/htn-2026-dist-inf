@@ -2,11 +2,14 @@
 Description=distributed-llama root API
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/distributed-llama
+Nice=-20
+OOMScoreAdjust=-500
 ExecStart=/home/pi/distributed-llama/dllama-api \
     --host 0.0.0.0 \
     --port 9990 \
@@ -21,6 +24,7 @@ ExecStart=/home/pi/distributed-llama/dllama-api \
 
 Restart=on-failure
 RestartSec=2
+TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target

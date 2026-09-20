@@ -89,6 +89,19 @@ def test_valid_counts_drive_the_choice_not_powers_of_two():
     assert choose_workers(list("abcdef"), counts) == list("abcde")   # 7 not valid -> 6
 
 
+def test_min_nodes_floor_stands_down_instead_of_shrinking():
+    assert choose_workers(list("abc"), [1, 2, 4, 8], min_nodes=4) == ["a", "b", "c"]
+    assert choose_workers(list("ab"), [1, 2, 4, 8], min_nodes=4) is None      # 3 nodes < floor
+    assert choose_workers(list("ab"), [1, 2, 4, 8], min_nodes=2) == ["a"]
+
+
+def test_explicit_counts_never_fall_through_to_one_node():
+    """--node-counts 4,8 with three survivors must not launch on a single Pi."""
+    assert choose_workers(list("ab"), [4, 8]) is None
+    assert choose_workers(list("abc"), [4, 8]) == ["a", "b", "c"]
+    assert choose_workers([], [4, 8]) is None
+
+
 def test_powers_of_two_helper():
     assert powers_of_two(1) == [1] and powers_of_two(5) == [1, 2, 4] and powers_of_two(8) == [1, 2, 4, 8]
 
@@ -138,6 +151,11 @@ def test_supervisor_derives_counts_from_the_model(tmp_path):
 def test_supervisor_falls_back_to_powers_of_two_without_a_header(tmp_path):
     sup = Supervisor(Config(workers=[("w", 9998)] * 5, model=str(tmp_path / "missing.m")))
     assert sup.valid_counts == [1, 2, 4] and "powers of two" in sup.node_counts_source
+
+
+def test_override_with_no_reachable_count_never_collapses_to_one():
+    sup = Supervisor(Config(workers=[("w", 9998)] * 3, model="missing.m", node_counts=[8]))
+    assert sup.valid_counts == [] and sup.choose(sup.workers) is None
 
 
 def test_node_counts_override_wins(tmp_path):
@@ -226,13 +244,16 @@ def wait_for(pred, timeout=20.0, step=0.1):
 class Lab:
     """A supervisor wired to fake_dllama_api.py and a file-driven probe."""
 
-    def __init__(self, tmp_path, workers=("w1", "w2", "w3"), model="m.m"):
+    def __init__(self, tmp_path, workers=("w1", "w2", "w3"), model="m.m", min_nodes=1, node_counts=None,
+                 load_seconds=0.3):
+        self.load_seconds = load_seconds
         self.dead_file = str(tmp_path / "dead")
         self.resets = []
         self.port = free_port()
         self.cfg = Config(
             workers=[(w, 9998) for w in workers],
             dllama_bin=FAKE, model=model, tokenizer="t.t",
+            min_nodes=min_nodes, node_counts=node_counts,
             api_port=self.port, status_file=str(tmp_path / "status.json"),
             log_dir=str(tmp_path / "logs"),
             interval=0.2, fail_after=2, ok_after=1, rejoin_grace=0.6,
@@ -258,7 +279,7 @@ class Lab:
 
     def spawn(self, cmd, reason):
         env = {**os.environ, "FAKE_DEAD_FILE": self.dead_file,
-               "FAKE_LOAD_SECONDS": "0.3", "FAKE_RETRY_SECONDS": "0.2"}
+               "FAKE_LOAD_SECONDS": str(self.load_seconds), "FAKE_RETRY_SECONDS": "0.2"}
         return subprocess.Popen([sys.executable, FAKE, *cmd[1:]], env=env,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -347,6 +368,36 @@ def test_n_workers_with_model_derived_counts(tmp_path):
         lab.stop()
 
 
+def test_below_min_nodes_goes_down_and_recovers(tmp_path):
+    """RAM floor: with min_nodes=4 a lost worker means down, not a 2-node launch."""
+    lab = Lab(tmp_path, min_nodes=4).start()
+    try:
+        sup = lab.sup
+        assert wait_for(lambda: sup.state == HEALTHY), sup.state_reason
+        gen = sup.generation
+        lab.set_dead("w2")
+        assert wait_for(lambda: sup.state == DOWN), sup.state_reason
+        assert sup.proc is None and lab.active() == []
+        assert "at least 4" in sup.state_reason
+        assert lab.status_file()["nodes_active"] == 0
+        assert sup.generation == gen           # nothing was launched on a smaller set
+        lab.set_dead()
+        assert wait_for(lambda: sup.state == HEALTHY and sup.generation > gen), sup.state_reason
+    finally:
+        lab.stop()
+
+
+def test_explicit_counts_without_a_fit_stand_down(tmp_path):
+    lab = Lab(tmp_path, node_counts=[4, 8])
+    lab.set_dead("w3")                          # three nodes reachable, only 4 and 8 allowed
+    lab.start()
+    try:
+        assert wait_for(lambda: lab.sup.state == DOWN), lab.sup.state_reason
+        assert lab.sup.generation == 0 and lab.sup.proc is None
+    finally:
+        lab.stop()
+
+
 def test_root_crash_is_relaunched(lab):
     sup = lab.sup
     assert wait_for(lambda: sup.state == HEALTHY)
@@ -356,7 +407,7 @@ def test_root_crash_is_relaunched(lab):
     assert any("root exited" in e["msg"] for e in sup.events)
 
 
-def test_worker_dying_during_load_shrinks_the_set(tmp_path):
+def test_worker_dead_before_first_launch_shrinks_the_set(tmp_path):
     lab = Lab(tmp_path)
     lab.set_dead("w2")          # dead before the first launch is even attempted
     lab.start()
@@ -364,6 +415,20 @@ def test_worker_dying_during_load_shrinks_the_set(tmp_path):
         # w2 dead -> 3 alive+root = 3 -> largest 2^n = 2 -> one worker, w1
         assert wait_for(lambda: lab.sup.state == DEGRADED), lab.sup.state_reason
         assert lab.active() == ["w1"]
+    finally:
+        lab.stop()
+
+
+def test_worker_dying_during_load_is_detected_by_wait_ready(tmp_path):
+    """The root is mid-load (fake sleeps 3s) when a set member dies: wait_ready must
+    notice, abandon that launch, and relaunch on the survivors."""
+    lab = Lab(tmp_path, load_seconds=3.0).start()
+    try:
+        sup = lab.sup
+        assert wait_for(lambda: sup.state == RESTARTING and sup.proc is not None), sup.state_reason
+        lab.set_dead("w2")
+        assert wait_for(lambda: sup.state == DEGRADED and lab.active() == ["w1"], timeout=30), sup.state_reason
+        assert any("worker lost during load: w2" in e["msg"] for e in sup.events)
     finally:
         lab.stop()
 
@@ -400,3 +465,12 @@ def test_stop_kills_the_root(tmp_path):
 
 def test_state_names_are_the_router_contract():
     assert {HEALTHY, DEGRADED, RESTARTING, DOWN} == {"healthy", "degraded", "restarting", "down"}
+
+
+def test_snapshot_matches_the_published_example(tmp_path):
+    """status.example.json is what the router and metrics tests parse; keep it honest."""
+    example = json.load(open(os.path.join(HERE, "status.example.json")))
+    snap = Supervisor(Config(workers=[("a", 9998), ("b", 9998), ("c", 9998)], model="missing.m")).snapshot()
+    assert set(snap) == set(example)
+    assert set(snap["root"]) == set(example["root"])
+    assert set(snap["workers"][0]) == set(example["workers"][0])

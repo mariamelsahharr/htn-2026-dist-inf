@@ -15,7 +15,7 @@ case "${1:-}" in
   up)
     echo "Starting workers..."
     for host in "${WORKERS[@]}"; do
-      ssh "pi@$host" "sudo systemctl start dllama-worker"
+      ssh "pi@$host" "sudo systemctl start dllama-worker" || echo "warn: $host not started (supervisor will run without it)"
     done
 
     sleep 2
@@ -45,7 +45,7 @@ case "${1:-}" in
     systemctl --no-pager status "$ROOT_UNIT" | head -n 8 || true
     if [ "$ROOT_UNIT" = "dllama-supervisor" ]; then
       curl -s -m 2 http://127.0.0.1:9991/status \
-        | python3 -c 'import json,sys; s=json.load(sys.stdin); print("cluster:", s["state"], "-", s["reason"]); print("active:", s["active_workers"] or "root only")' \
+        | python3 -c 'import json,sys; s=json.load(sys.stdin); print("cluster:", s["state"], "-", s["reason"]); print("active:", ", ".join(s["active_workers"]) or "root only")' \
         || echo "supervisor status endpoint not answering"
     fi
 

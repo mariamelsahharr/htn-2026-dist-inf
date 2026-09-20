@@ -5,11 +5,15 @@ These are pure-function tests, no server and no network, so they run in well
 under a second and you can put them in the pre-demo checklist.
 """
 
+import json
+from pathlib import Path
+
 import pytest
 
-from routing import (BASETEN, CLUSTER, RouterConfig, Tier, continuation_body,
-                     estimate_tokens, fallback_chain, is_heavy_model,
-                     models_payload, route, strip_heavy)
+from routing import (BASETEN, CLUSTER, Breaker, RouterConfig, Tier, cluster_state,
+                     continuation_body, estimate_tokens, fallback_chain,
+                     is_heavy_model, missing_required_tool_call, models_payload,
+                     route, strip_heavy)
 
 CFG = RouterConfig(size_threshold=2048, cloud_available=True,
                    local_model="llama-3.2-3b-instruct",
@@ -61,11 +65,35 @@ def test_force_header_garbage_is_ignored():
 
 # ----------------------------------------------------- branch 1: cluster health
 
-@pytest.mark.parametrize("status", ["restarting", "degraded", "down", "unknown", "unreachable"])
+@pytest.mark.parametrize("status", ["restarting", "degraded_below_min", "down", "unknown", "unreachable"])
 def test_unhealthy_cluster_goes_to_cloud(status):
     d = route(body("hi"), {}, status, CFG)
     assert d.upstream == BASETEN
     assert d.reason == f"cluster_{status}"
+
+
+STATUS_EXAMPLE = json.loads(
+    (Path(__file__).resolve().parents[1] / "cluster" / "supervisor" / "status.example.json").read_text())
+
+
+def test_supervisor_status_contract_parses():
+    """The example document every consumer is tested against: degraded on 2 of 4 nodes."""
+    assert cluster_state(STATUS_EXAMPLE, min_local_nodes=2) == "degraded"
+    assert cluster_state(STATUS_EXAMPLE, min_local_nodes=3) == "degraded_below_min"
+    assert cluster_state({**STATUS_EXAMPLE, "state": "healthy"}, 2) == "healthy"
+    assert cluster_state({**STATUS_EXAMPLE, "state": "restarting"}, 2) == "restarting"
+    assert cluster_state({}, 2) == "unknown"
+
+
+def test_degraded_cluster_still_serves_locally():
+    """The supervisor's reduced node set is there to be used, not routed around."""
+    d = route(body("hi"), {}, "degraded", CFG)
+    assert d.upstream == CLUSTER and d.reason == "default_local"
+
+
+def test_degraded_cluster_is_a_valid_fallback_target():
+    d = route(body("hi"), {"X-Escalate": "1"}, "degraded", CFG)
+    assert fallback_chain(d, "degraded", CFG) == [BASETEN, CLUSTER]
 
 
 def test_health_check_is_case_insensitive():
@@ -74,9 +102,9 @@ def test_health_check_is_case_insensitive():
 
 def test_unhealthy_cluster_without_cloud_still_tries_local():
     """A missing Baseten key must degrade the demo, not 500 it."""
-    d = route(body("hi"), {}, "degraded", NO_CLOUD)
+    d = route(body("hi"), {}, "restarting", NO_CLOUD)
     assert d.upstream == CLUSTER
-    assert d.reason == "cluster_degraded_no_cloud"
+    assert d.reason == "cluster_restarting_no_cloud"
 
 
 # -------------------------------------------------------- branch 2: size budget
@@ -261,6 +289,55 @@ def test_models_payload_omits_cloud_when_unconfigured():
     assert NO_CLOUD.cloud_model not in ids
 
 
+# --------------------------------------------------------- breaker + tool miss
+
+def test_breaker_opens_after_n_failures_and_closes_after_cooldown():
+    b = Breaker(failures=2, cooldown=10)
+    assert b.record_failure("baseten", 100.0) is False and not b.is_open("baseten", 100.0)
+    assert b.record_failure("baseten", 101.0) is True and b.is_open("baseten", 105.0)
+    assert not b.is_open("baseten", 111.5)            # cooldown elapsed
+    assert b.snapshot(105.0) == {"baseten": 6.0}
+
+
+def test_breaker_success_resets_the_count_and_clears_an_open_circuit():
+    b = Breaker(failures=2, cooldown=10)
+    b.record_failure("gemini", 0.0)
+    b.record_success("gemini")
+    assert b.record_failure("gemini", 1.0) is False   # count restarted
+    b.record_failure("gemini", 2.0)
+    b.record_success("gemini")
+    assert not b.is_open("gemini", 3.0)
+
+
+def test_required_tool_call_answered_in_prose_is_a_miss():
+    prose = {"role": "assistant", "content": "I would run ls."}
+    called = {"role": "assistant", "content": None, "tool_calls": [{"id": "c", "type": "function"}]}
+    assert missing_required_tool_call({"tools": TOOLS, "tool_choice": "required"}, prose)
+    assert missing_required_tool_call({"tools": TOOLS, "tool_choice": {"type": "function", "function": {"name": "shell"}}}, prose)
+    assert not missing_required_tool_call({"tools": TOOLS, "tool_choice": "required"}, called)
+    assert not missing_required_tool_call({"tools": TOOLS, "tool_choice": "auto"}, prose)
+    assert not missing_required_tool_call({"tools": TOOLS}, prose)
+
+
+def test_tools_model_is_used_only_when_the_request_carries_tools():
+    cfg = RouterConfig(cloud_available=True, cloud_model="big-70b",
+                       tiers={"snowflake": Tier("snowflake", "llama3.1-8b", "https://x/v1", "k",
+                                                tools_model="claude-haiku-4-5")})
+    plain = route(body("hi"), {"X-Force-Upstream": "snowflake"}, "healthy", cfg)
+    with_tools = route({**body("hi"), "tools": TOOLS}, {"X-Force-Upstream": "snowflake"}, "healthy", cfg)
+    assert plain.model_sent == "llama3.1-8b" and with_tools.model_sent == "claude-haiku-4-5"
+    assert cfg.model_for("snowflake", True) == "claude-haiku-4-5" and cfg.model_for(BASETEN, True) == "big-70b"
+    ids = [m["id"] for m in models_payload(cfg)["data"]]
+    assert "llama3.1-8b" in ids and "claude-haiku-4-5" in ids
+
+
+def test_tier_reasoning_effort_is_added_only_when_set():
+    t = Tier("openai", "gpt-5.6-luna", "https://x/v1", "k", reasoning_effort="none")
+    out = t.payload({"model": "gpt-5.6-luna", "messages": []}, stream=True)
+    assert out["reasoning_effort"] == "none" and out["stream"] is True and out["messages"] == []
+    assert "reasoning_effort" not in Tier("gemini", "g", "https://x/v1", "k").payload({"messages": []})
+
+
 def test_models_payload_lists_every_configured_tier():
     ids = [m["id"] for m in models_payload(tiered())["data"]]
     assert "big-70b" in ids and "gpt-x" in ids and "gemini-x" in ids
@@ -275,7 +352,7 @@ def test_tools_go_to_the_tool_tier():
 
 
 def test_tools_outrank_cluster_health():
-    d = route({**body("hi"), "tools": TOOLS}, {}, "degraded", tiered())
+    d = route({**body("hi"), "tools": TOOLS}, {}, "restarting", tiered())
     assert d.upstream == "openai"
 
 

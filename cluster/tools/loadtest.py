@@ -195,6 +195,7 @@ def one_request(url, api_key, model, prompt, max_tokens, temperature, timeout, l
                     live.add_tokens(1)
         rec["ok"] = True
     except urllib.error.HTTPError as e:
+        rec["served_by"] = e.headers.get("X-Served-By")   # the router labels failures too
         try:
             rec["error"] = f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:200]}"
         except Exception:
@@ -242,7 +243,6 @@ def main():
     if not args.requests and not args.duration:
         args.requests = args.concurrency * 5
 
-    rng = random.Random(args.seed)
     live = Live(args.tps_file)
     records = []
     rec_lock = threading.Lock()
@@ -322,10 +322,13 @@ def main():
         for t in threads:
             t.join()
     except KeyboardInterrupt:
-        print("\ninterrupted, draining...", file=sys.stderr)
+        print("\ninterrupted, draining in-flight requests...", file=sys.stderr)
         stop.set()
+        for t in threads:
+            t.join(timeout=args.timeout)
     wall = time.time() - wall0
     stop.set()
+    live.write_sidecar()   # final inflight=0 so metrics.py stops showing a stale rate
     time.sleep(0.1)
     sys.stderr.write("\r".ljust(95) + "\r")
     if out_fh:

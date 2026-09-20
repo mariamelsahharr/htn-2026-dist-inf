@@ -28,6 +28,14 @@ whose dims divide by 3 it would use 3- and 6-node sets too. Check any new model 
 `--node-counts 1,2,4,8` pins the list if you ever want to be conservative, and if
 the header cannot be read the supervisor falls back to powers of two and says so.
 
+**RAM floor.** Node count does not know about memory. A 17 GB model on 8 nodes is
+fine; the same model on the 2 nodes left after a cascade is not. `--min-nodes N`
+makes the supervisor report `down` (and the router send everything to the cloud)
+instead of launching a set that cannot hold the weights. Set it to the smallest
+valid count whose per-node share fits the smallest Pi; it comes back up on its own
+when enough nodes return. With no fit at all the supervisor never falls through
+to a single node.
+
 ## The contract the router reads
 
 ```
@@ -47,31 +55,31 @@ GET  /events     recent events
 POST /restart    force a relaunch (demo control)
 ```
 
+`status.example.json` next to this file is the full document. The supervisor,
+router and metrics test suites all parse that same file, so a field rename fails a
+test before it fails a demo.
+
 The same JSON is written to `--status-file` (default `/tmp/dllama-supervisor-status.json`).
 `healthy` means every configured worker is in the set. `degraded` means serving on
 fewer nodes. The router sends everything except `healthy` to the cloud.
 
-## Install on the root Pi
+## Install
+
+`cluster/bootstrap.yml` does all of it: builds distributed-llama on every node,
+generates an SSH key on the root and authorizes it on the workers (the supervisor
+restarts survivors over SSH before every relaunch), installs the worker units, and
+installs `supervisor.py` as `/home/pi/supervisor.py` plus the supervisor unit on the
+root with the plain root unit left disabled as the rollback.
 
 ```bash
-git clone <repo> ~/htn-2026-dist-inf            # or git pull
-sudo cp ~/htn-2026-dist-inf/cluster/systemd/dllama-supervisor.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl disable --now dllama-root         # supervisor owns the root from now on
-sudo systemctl enable --now dllama-supervisor
-journalctl -u dllama-supervisor -f
+cd cluster && ansible-playbook -i inventory.ini bootstrap.yml -u pi
+ssh pi@<root> journalctl -u dllama-supervisor -f
 ```
 
-Edit `--workers` in the unit first: comma-separated hostnames in **priority order**.
-When the set shrinks the first ones are kept, so list the 8 GB, best-cooled nodes first.
-
-Two things the root Pi needs that the plain unit did not:
-
-- `ssh pi@<worker> sudo systemctl restart dllama-worker` must work **without a
-  password** from the root (`ssh-copy-id` to each worker). The supervisor restarts
-  surviving workers before every relaunch, because a worker that was mid-forward
-  when a peer died can sit in a blocking read for minutes.
-- `ping` to each worker hostname must resolve. mDNS `.local` names are fine.
+Edit `--workers` in `systemd/dllama-supervisor.service` first: comma-separated
+hosts in **priority order**. When the set shrinks the first ones are kept, so list
+the 8 GB, best-cooled nodes first. `ping` to each worker must work from the root;
+the wired IPs are safer than mDNS names.
 
 Rollback to the plain root is one command: `ROOT_UNIT=dllama-root ~/cluster up`
 (after `~/cluster down`). The old unit stays installed, just disabled.

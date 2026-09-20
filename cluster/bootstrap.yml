@@ -1,5 +1,11 @@
 ---
-- name: Configure distributed-llama cluster
+# Fresh Pi -> cluster member in one run. Idempotent; rerun it on a reflashed node.
+#
+#   cp inventory.example.ini inventory.ini        # edit hosts / IPs
+#   ansible-playbook -i inventory.ini bootstrap.yml -u pi
+#   ansible-playbook -i inventory.ini root-model.yml -u pi
+
+- name: Build distributed-llama on every node
   hosts: cluster
   become: true
 
@@ -23,11 +29,111 @@
       git:
         repo: https://github.com/b4rtaz/distributed-llama.git
         dest: /home/pi/distributed-llama
-        version: master
+        version: main
         update: yes
       become_user: pi
 
-    - name: Build distributed-llama
-      make:
+    # A bare `make` runs the Makefile's first target, which is `clean`. Plain
+    # command tasks keep this on ansible-core only (the make module needs a collection).
+    - name: Build dllama (worker binary)
+      command: make dllama
+      args:
         chdir: /home/pi/distributed-llama
+        creates: /home/pi/distributed-llama/dllama
       become_user: pi
+
+    - name: Build dllama-api (root binary)
+      command: make dllama-api
+      args:
+        chdir: /home/pi/distributed-llama
+        creates: /home/pi/distributed-llama/dllama-api
+      become_user: pi
+
+
+- name: Root SSH key (the supervisor restarts workers over SSH)
+  hosts: root
+  tasks:
+    - name: Generate an ed25519 key for pi on the root
+      command: ssh-keygen -q -t ed25519 -N "" -f /home/pi/.ssh/id_ed25519
+      args:
+        creates: /home/pi/.ssh/id_ed25519
+
+    - name: Read the root's public key
+      slurp:
+        src: /home/pi/.ssh/id_ed25519.pub
+      register: root_pubkey
+
+
+- name: Workers
+  hosts: workers
+  become: true
+
+  tasks:
+    - name: Authorize the root's key for pi
+      lineinfile:
+        path: /home/pi/.ssh/authorized_keys
+        line: "{{ hostvars[groups['root'][0]].root_pubkey.content | b64decode | trim }}"
+        create: yes
+        owner: pi
+        group: pi
+        mode: "0600"
+
+    - name: Install the worker unit
+      copy:
+        src: systemd/dllama-worker.service
+        dest: /etc/systemd/system/dllama-worker.service
+        mode: "0644"
+      notify: reload systemd
+
+    - name: Enable and start the worker
+      systemd:
+        name: dllama-worker
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+
+
+- name: Root (supervisor owns dllama-api)
+  hosts: root
+  become: true
+
+  tasks:
+    - name: Install the supervisor and the cluster wrapper
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: pi
+        group: pi
+        mode: "0755"
+      loop:
+        - { src: supervisor/supervisor.py, dest: /home/pi/supervisor.py }
+        - { src: cluster, dest: /home/pi/cluster }
+
+    - name: Install the root units (dllama-root stays as the rollback, disabled)
+      copy:
+        src: "systemd/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        mode: "0644"
+      loop:
+        - dllama-root.service
+        - dllama-supervisor.service
+
+    - name: Disable the plain root unit
+      systemd:
+        name: dllama-root
+        enabled: no
+        state: stopped
+        daemon_reload: yes
+      failed_when: false
+
+    - name: Enable and start the supervisor
+      systemd:
+        name: dllama-supervisor
+        enabled: yes
+        state: started
+        daemon_reload: yes

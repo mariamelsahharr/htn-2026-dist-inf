@@ -36,9 +36,11 @@ Current limitation:
 
 ```bash
 cp inventory.example.ini inventory.ini
-ansible-playbook -i inventory.ini bootstrap.yml -u pi
-ansible-playbook -i inventory.ini root-model.yml -u pi
+ansible-playbook -i inventory.ini bootstrap.yml -u pi     # build, SSH key, units, supervisor
+ansible-playbook -i inventory.ini root-model.yml -u pi    # model on the root
 ```
+
+Rerunning `bootstrap.yml` on a reflashed card brings that node back into the cluster.
 
 ## Ports
 

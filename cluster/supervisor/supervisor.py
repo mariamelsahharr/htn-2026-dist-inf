@@ -104,12 +104,17 @@ def valid_node_counts(header: dict, max_nodes: int) -> list[int]:
     return [n for n in range(1, max_nodes + 1) if all(d % n == 0 for d in dims)]
 
 
-def choose_workers(alive_in_priority: list, valid_counts: list[int] | None = None) -> list:
-    """Largest valid set the alive workers fill, in priority order."""
+def choose_workers(alive_in_priority: list, valid_counts: list[int] | None = None,
+                   min_nodes: int = 1) -> list | None:
+    """Largest valid set the alive workers fill, in priority order.
+    None when no valid count fits between min_nodes and the survivors: stand down
+    rather than launch a set the model or the RAM cannot take."""
     n_alive = len(alive_in_priority)
-    counts = valid_counts if valid_counts else powers_of_two(n_alive + 1)
-    nodes = max((c for c in counts if c <= n_alive + 1), default=1)
-    return list(alive_in_priority[: nodes - 1])
+    counts = powers_of_two(n_alive + 1) if valid_counts is None else valid_counts
+    fits = [c for c in counts if min_nodes <= c <= n_alive + 1]
+    if not fits:
+        return None
+    return list(alive_in_priority[: max(fits) - 1])
 
 
 def parse_workers(spec: str, default_port: int) -> list[tuple[str, int]]:
@@ -193,10 +198,14 @@ class Config:
     settle: float = 3.0
     ready_timeout: float = 600.0
     api_check_interval: float = 10.0
-    api_stall_timeout: float = 180.0
+    # 0 = off. dllama-api is single-threaded, so back-to-back generations look like a
+    # stall to a GET probe; process exit and worker loss are the reliable signals.
+    api_stall_timeout: float = 0.0
     launch_backoff: float = 5.0
     # Explicit list of allowed node counts; None derives them from the model header.
     node_counts: list[int] | None = None
+    # Below this many nodes the supervisor reports `down` instead of launching (RAM floor).
+    min_nodes: int = 1
 
 
 # ------------------------------------------------------------------ supervisor
@@ -242,12 +251,16 @@ class Supervisor:
         self._pool = ThreadPoolExecutor(max_workers=max(1, len(self.workers)))
         self.model_header: dict | None = None
         self.valid_counts, self.node_counts_source = self._resolve_node_counts()
+        self._snapshot: dict = {}
 
     def _resolve_node_counts(self) -> tuple[list[int], str]:
         max_nodes = len(self.workers) + 1
         if self.cfg.node_counts:
             counts = sorted({c for c in self.cfg.node_counts if 1 <= c <= max_nodes})
-            return (counts or [1]), "override"
+            if not counts:
+                log(f"--node-counts {self.cfg.node_counts} has no entry <= {max_nodes} nodes; "
+                    "the supervisor will stay down until that changes")
+            return counts, "override"
         try:
             self.model_header = read_model_header(self.cfg.model)
             counts = valid_node_counts(self.model_header, max_nodes)
@@ -256,8 +269,21 @@ class Supervisor:
             log(f"cannot read model header ({e}); assuming powers of two")
             return powers_of_two(max_nodes), "powers of two (header unreadable)"
 
-    def choose(self, alive: list[Worker]) -> list[Worker]:
-        return choose_workers(alive, self.valid_counts)
+    def choose(self, alive: list[Worker]) -> list[Worker] | None:
+        return choose_workers(alive, self.valid_counts, self.cfg.min_nodes)
+
+    def launch_or_stand_down(self, reason: str) -> None:
+        """Launch on the best set the survivors allow, or report down and wait."""
+        desired = self.choose(self.alive_workers())
+        if desired is None:
+            msg = (f"only {len(self.alive_workers()) + 1} node(s) reachable; need a valid count "
+                   f"in {self.valid_counts} of at least {self.cfg.min_nodes}")
+            self.active = []
+            if not (self.state == DOWN and self.state_reason == msg):
+                self.set_state(DOWN, msg)
+            self._next_launch_at = time.time() + self.cfg.interval
+            return
+        self.launch(desired, reason)
 
     # ----- bookkeeping ---------------------------------------------------------
 
@@ -345,7 +371,7 @@ class Supervisor:
         try:
             with urllib.request.urlopen(url, timeout=2.0) as r:
                 return r.status == 200
-        except (urllib.error.URLError, OSError, ValueError):
+        except Exception:  # noqa: BLE001 - a malformed reply during load is "not ready", never fatal
             return False
 
     def kill_root(self, reason: str) -> None:
@@ -424,6 +450,7 @@ class Supervisor:
         self.launch_failures += 1
         self.kill_root(problem)
         self.reset_workers([w for w in workers if w.alive is not False])
+        self.active = []
         self._next_launch_at = time.time() + self.cfg.launch_backoff
         self.set_state(DOWN if self.launch_failures >= 3 else RESTARTING, problem)
         return False
@@ -435,7 +462,11 @@ class Supervisor:
             rc = self.proc.poll() if self.proc else -1
             if rc is not None:
                 return f"root exited with code {rc} during load"
-            if self._api_check():
+            try:
+                ready = self._api_check()
+            except Exception:  # noqa: BLE001 - never let a probe error strand the state machine
+                ready = False
+            if ready:
                 return None
             self.probe_all()
             dead = [w.host for w in self.active if w.alive is False]
@@ -452,10 +483,16 @@ class Supervisor:
         self.set_state(RESTARTING, reason)
         old = list(self.active)
         self.kill_root(reason)
-        self.reset_workers([w for w in old if w.alive is not False])
+        self.probe_all()
+        # reset survivors and any worker about to rejoin: a returning worker may still be
+        # attached to the dead root's session and would stall the new root's connect
+        desired = self.choose(self.alive_workers()) or []
+        to_reset = {id(w): w for w in old if w.alive is not False}
+        to_reset.update({id(w): w for w in desired})
+        self.reset_workers(list(to_reset.values()))
         self._stop.wait(self.cfg.settle)
         self.probe_all()
-        self.launch(self.choose(self.alive_workers()), reason)
+        self.launch_or_stand_down(reason)
 
     def _api_stalled(self, now: float) -> bool:
         if self.cfg.api_stall_timeout <= 0:
@@ -484,8 +521,7 @@ class Supervisor:
                 self._next_launch_at = now + self.cfg.settle
             if now < self._next_launch_at:
                 return
-            self.launch(self.choose(self.alive_workers()),
-                        "startup" if self.generation == 0 else "relaunch")
+            self.launch_or_stand_down("startup" if self.generation == 0 else "relaunch")
             return
         dead = [w.host for w in self.active if w.alive is False]
         if dead:
@@ -500,7 +536,7 @@ class Supervisor:
             return
         if self.cfg.auto_rejoin:
             desired = self.choose(self.alive_workers())
-            if len(desired) > len(self.active):
+            if desired is not None and len(desired) > len(self.active):
                 if self._grow_since is None:
                     self._grow_since = now
                     gained = [w.host for w in desired if w not in self.active]
@@ -540,7 +576,8 @@ class Supervisor:
             "since": self.state_since,
             "state_age_s": round(now - self.state_since, 1),
             "nodes_total": len(self.workers) + 1,
-            "nodes_active": len(self.active) + 1,
+            "nodes_active": len(self.active) + 1 if self.root_running() else 0,
+            "min_nodes": self.cfg.min_nodes,
             "valid_node_counts": self.valid_counts,
             "node_counts_source": self.node_counts_source,
             "model_header": {k: self.model_header[k] for k in
@@ -569,15 +606,21 @@ class Supervisor:
         }
 
     def publish(self) -> None:
+        """Refresh the cached snapshot the HTTP thread serves, and the status file."""
+        self._snapshot = self.snapshot()
         if not self.cfg.status_file:
             return
         tmp = self.cfg.status_file + ".tmp"
         try:
             with open(tmp, "w") as f:
-                json.dump(self.snapshot(), f)
+                json.dump(self._snapshot, f)
             os.replace(tmp, self.cfg.status_file)
         except OSError as e:
             log(f"cannot write {self.cfg.status_file}: {e}")
+
+    def last_snapshot(self) -> dict:
+        """Safe to call from any thread; the main loop is the only writer."""
+        return self._snapshot or self.snapshot()
 
 
 # ----------------------------------------------------------------- status HTTP
@@ -602,11 +645,11 @@ def make_handler(sup: Supervisor):
         def do_GET(self) -> None:  # noqa: N802
             path = self.path.split("?", 1)[0]
             if path in ("/", "/status", "/status.json"):
-                self._json(200, sup.snapshot())
+                self._json(200, sup.last_snapshot())
             elif path == "/healthz":
                 self._json(200 if sup.serving else 503, {"ok": sup.serving, "state": sup.state})
             elif path == "/events":
-                self._json(200, list(sup.events))
+                self._json(200, sup.last_snapshot().get("events", []))
             else:
                 self._json(404, {"error": "not found"})
 
@@ -633,7 +676,7 @@ def serve_status(sup: Supervisor, host: str, port: int) -> ThreadingHTTPServer:
 def build_parser() -> argparse.ArgumentParser:
     d = Config(workers=[])
     ap = argparse.ArgumentParser(description="distributed-llama root supervisor with power-of-two failover")
-    ap.add_argument("--workers", default="pi-node-1.local,pi-node-2.local,pi-node-4.local",
+    ap.add_argument("--workers", default="192.168.50.11,192.168.50.12,192.168.50.14",
                     help="comma-separated host[:port] in priority order; the first ones are kept "
                          "when the set shrinks, so list the best-cooled / biggest-RAM nodes first")
     ap.add_argument("--worker-port", type=int, default=9998)
@@ -669,6 +712,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--api-stall-timeout", type=float, default=d.api_stall_timeout,
                     help="restart if /v1/models has not answered for this long; 0 disables")
     ap.add_argument("--launch-backoff", type=float, default=d.launch_backoff)
+    ap.add_argument("--min-nodes", type=int, default=1,
+                    help="below this many nodes report down instead of launching (set it to the "
+                         "smallest count whose per-node share of the model fits in RAM)")
     ap.add_argument("--node-counts", default="",
                     help="comma-separated node counts to allow, e.g. 1,2,4,8; default derives "
                          "them from the model header (divisibility of heads/dims/vocab)")
@@ -709,6 +755,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
         api_stall_timeout=args.api_stall_timeout,
         launch_backoff=args.launch_backoff,
         node_counts=[int(c) for c in args.node_counts.split(",") if c.strip()] or None,
+        min_nodes=max(1, args.min_nodes),
     )
 
 

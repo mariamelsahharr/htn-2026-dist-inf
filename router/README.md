@@ -17,8 +17,8 @@ and `X-Route-Reason`. Every decision is appended to `routing_decisions.jsonl`.
 pip install -r requirements.txt
 cat > .env <<'EOF'                    # gitignored; read automatically at startup, env vars override it
 BASETEN_API_KEY=...
-LOCAL_BASE_URL=http://pi-node-5.local:9990
-STATUS_URL=http://pi-node-5.local:9991/status
+LOCAL_BASE_URL=http://192.168.50.13:9990
+STATUS_URL=http://192.168.50.13:9991/status
 CLOUD_MODEL=zai-org/GLM-5.3-Fast
 EOF
 python app.py                         # :8000
@@ -31,10 +31,25 @@ Extra tiers exist when key and model are set: `OPENAI_API_KEY` + `OPENAI_MODEL`,
 `SNOWFLAKE_BASE_URL=https://<account>.snowflakecomputing.com/api/v2/cortex/v1`.
 `CLOUD_TIER_ORDER` sets fallback order. `TOOL_TIER=openai` pins tool requests to a
 tier; leave it unset and the cluster tries tool calls itself.
+`OPENAI_REASONING_EFFORT` (default `none`, which `gpt-5.6-luna` requires to accept
+function tools on chat completions) and `GEMINI_REASONING_EFFORT` set that field on
+every request to the tier; blank sends nothing. `<NAME>_TOOLS_MODEL` (and
+`CLOUD_TOOLS_MODEL` for Baseten) is used instead of the tier's model when the
+request carries tool definitions, so a cheap model can take plain chat and a
+tool-capable one the agent turns; on Snowflake, `SNOWFLAKE_MODEL=llama3.1-8b`
+with `SNOWFLAKE_TOOLS_MODEL=claude-haiku-4-5`.
 
-Cluster health comes from the supervisor's status URL. When that is unreachable the
-router asks the root API directly, so it works before the supervisor exists and
-still notices a dead root afterwards.
+A cloud tier that fails `BREAKER_FAILURES` times in a row (default 2) is skipped for
+`BREAKER_COOLDOWN` seconds (default 30) so a dead Baseten on venue Wi-Fi does not
+cost a connect timeout on every request; `/stats` shows `breakers_open_s`. A local
+answer in prose to a `tool_choice: required` request counts as a miss and falls
+through to the next tier.
+
+Cluster health comes from the supervisor's status URL. `healthy` and `degraded`
+both take traffic; `restarting`, `down` and a degraded cluster below
+`MIN_LOCAL_NODES` (default 2, so root-alone goes to cloud) do not. When the status
+URL is unreachable the router asks the root API directly, so it works before the
+supervisor exists and still notices a dead root afterwards.
 
 ## Codex
 

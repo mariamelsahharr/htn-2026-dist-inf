@@ -28,17 +28,19 @@ ROUTER_PORT = 9101
 # ----------------------------------------------------------------- fake stack
 
 fake = FastAPI()
-MODE = {"local": "ok", "cloud": "ok", "status": "healthy"}
+MODE = {"local": "ok", "cloud": "ok", "status": "healthy", "nodes": 4}
 
 
 @fake.get("/control")
-async def control(local: str = None, cloud: str = None, status: str = None):
+async def control(local: str = None, cloud: str = None, status: str = None, nodes: int = None):
     if local:
         MODE["local"] = local
     if cloud:
         MODE["cloud"] = cloud
     if status:
         MODE["status"] = status
+    if nodes is not None:
+        MODE["nodes"] = nodes
     return MODE
 
 
@@ -46,7 +48,7 @@ async def control(local: str = None, cloud: str = None, status: str = None):
 async def status():
     if MODE["status"] == "gone":   # no supervisor at all
         return JSONResponse({"error": "no supervisor"}, status_code=500)
-    return {"state": MODE["status"], "nodes_alive": 4}
+    return {"state": MODE["status"], "nodes_active": MODE["nodes"], "nodes_total": 4}
 
 
 @fake.get("/local/v1/models")
@@ -77,7 +79,7 @@ async def _handle(request: Request, which: str):
         return JSONResponse({"error": "upstream is sad"}, status_code=503)
     words = [f"{which}{i}" for i in range(8)]
     if not body.get("stream"):
-        if body.get("tools"):
+        if body.get("tools") and mode != "prose":   # "prose": ignore the tools like a weak local model
             # like dllama-api: tool calls only come back on the blocking path
             name = body["tools"][0]["function"]["name"]
             args = json.dumps({"input": "*** patch ***"} if name == "apply_patch" else {"command": ["ls"]})
@@ -170,6 +172,9 @@ def stream_text(client, body, headers=None):
 def main():
     base = f"http://127.0.0.1:{FAKE_PORT}"
     os.environ.update({
+        "ROUTER_NO_DOTENV": "1",          # never let a real router/.env leak real tiers into this run
+        "BREAKER_FAILURES": "2",
+        "BREAKER_COOLDOWN": "3",
         "LOCAL_BASE_URL": f"{base}/local",
         "CLOUD_BASE_URL": f"{base}/cloud",
         "CLOUD_API_KEY": "test-key",
@@ -184,6 +189,7 @@ def main():
     })
     with open("/tmp/itest_cache.json", "w") as fh:
         json.dump({}, fh)
+    open("/tmp/itest_decisions.jsonl", "w").close()   # this run's decisions only
 
     threading.Thread(target=serve, args=(fake, FAKE_PORT), daemon=True).start()
     if not wait_for(f"{base}/status"):
@@ -202,6 +208,10 @@ def main():
     served, reason, text = stream_text(c, {"messages": [{"role": "user", "content": "hi"}]})
     check("small prompt, healthy cluster -> local", served == "cluster", f"{served}/{reason}")
     check("local content actually streamed", "local0" in text, text[:60])
+    raw = c.post(f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions",
+                 json={"messages": [{"role": "user", "content": "hi"}], "stream": True}, timeout=30).text
+    check("exactly one [DONE] terminator per stream", raw.count("data: [DONE]") == 1, str(raw.count("data: [DONE]")))
+    check("no cloud continuation after a finished local answer", "cloud" not in raw, raw[-120:])
 
     served, reason, _ = stream_text(c, {"messages": [{"role": "user", "content": "x" * 20000}]})
     check("huge prompt -> baseten", served == "baseten" and reason == "over_size_threshold",
@@ -221,12 +231,21 @@ def main():
     check("force header overrides size rule", served == "cluster", served)
 
     print("\n--- cluster health ---")
-    set_mode(status="degraded")
+    set_mode(status="restarting")
     time.sleep(1.2)
     served, reason, _ = stream_text(c, {"messages": [{"role": "user", "content": "hi"}]})
-    check("supervisor says degraded -> baseten",
-          served == "baseten" and "degraded" in (reason or ""), f"{served}/{reason}")
-    set_mode(status="healthy")
+    check("supervisor says restarting -> baseten",
+          served == "baseten" and reason == "cluster_restarting", f"{served}/{reason}")
+    set_mode(status="degraded", nodes=2)
+    time.sleep(1.2)
+    served, reason, _ = stream_text(c, {"messages": [{"role": "user", "content": "hi"}]})
+    check("degraded on 2 nodes -> still served by the cluster", served == "cluster", f"{served}/{reason}")
+    set_mode(status="degraded", nodes=1)
+    time.sleep(1.2)
+    served, reason, _ = stream_text(c, {"messages": [{"role": "user", "content": "hi"}]})
+    check("degraded to root alone (below MIN_LOCAL_NODES) -> baseten",
+          served == "baseten" and reason == "cluster_degraded_below_min", f"{served}/{reason}")
+    set_mode(status="healthy", nodes=4)
     time.sleep(1.2)
 
     set_mode(status="gone", local="ok")
@@ -262,6 +281,41 @@ def main():
     check("partial local output preserved", "local0" in text, text[:80])
     check("cloud continuation appended", "cloud" in text, text[:120])
 
+    print("\n--- required tool call answered in prose ---")
+    set_mode(local="prose", cloud="ok", status="healthy")
+    time.sleep(1.2)
+    req = {"messages": [{"role": "user", "content": "list files"}], "tool_choice": "required",
+           "tools": [{"type": "function", "function": {"name": "shell", "parameters": {"type": "object", "properties": {}}}}]}
+    r = c.post(f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions", json=req, timeout=30)
+    check("tool_choice=required + local prose -> falls through to the cloud's tool call",
+          r.headers.get("X-Served-By") == "baseten" and "+fallback" in r.headers.get("X-Route-Reason", "")
+          and r.json()["choices"][0]["message"].get("tool_calls"), f"{r.headers.get('X-Served-By')} {r.headers.get('X-Route-Reason')}")
+    r = c.post(f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions", json={**req, "tool_choice": "auto"}, timeout=30)
+    check("tool_choice=auto + local prose -> prose is a valid answer, stays local",
+          r.headers.get("X-Served-By") == "cluster" and r.json()["choices"][0]["message"].get("content"),
+          r.headers.get("X-Served-By"))
+    set_mode(local="ok")
+
+    print("\n--- circuit breaker on a dead cloud tier ---")
+    set_mode(local="refuse", cloud="refuse")
+    for _ in range(2):   # two failures open the breaker (BREAKER_FAILURES=2)
+        c.post(f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions",
+               json={"messages": [{"role": "user", "content": "unique-no-cache-1"}]}, timeout=30)
+    set_mode(cloud="ok")
+    t0 = time.time()
+    r = c.post(f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions",
+               json={"messages": [{"role": "user", "content": "unique-no-cache-2"}]}, timeout=30)
+    st = c.get(f"http://127.0.0.1:{ROUTER_PORT}/stats").json()
+    check("open breaker skips the cloud tier without waiting on it",
+          r.status_code == 502 and "baseten" in st.get("breakers_open_s", {}) and time.time() - t0 < 2,
+          f"{r.status_code} {st.get('breakers_open_s')}")
+    time.sleep(3.5)   # BREAKER_COOLDOWN=3
+    r = c.post(f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions",
+               json={"messages": [{"role": "user", "content": "unique-no-cache-3"}]}, timeout=30)
+    check("after the cooldown the tier is retried and serves", r.headers.get("X-Served-By") == "baseten",
+          r.headers.get("X-Served-By"))
+    set_mode(local="ok", cloud="ok")
+
     print("\n--- everything down ---")
     set_mode(local="refuse", cloud="refuse")
     r = c.post(f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions",
@@ -277,6 +331,7 @@ def main():
 
     print("\n--- non-streaming clients ---")
     set_mode(local="ok", cloud="ok")
+    time.sleep(3.5)   # "everything down" above tripped the cloud breaker; let BREAKER_COOLDOWN pass
     r = c.post(f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions",
                json={"messages": [{"role": "user", "content": "hi"}]}, timeout=30)
     check("blocking request works", r.status_code == 200 and r.headers.get("X-Served-By") == "cluster",
@@ -290,6 +345,21 @@ def main():
     check("blocking falls back to cloud", r.headers.get("X-Served-By") == "baseten",
           r.headers.get("X-Served-By"))
     set_mode(local="ok")
+
+    print("\n--- tool calls on the chat endpoint, both modes ---")
+    set_mode(local="ok", cloud="ok", status="healthy")
+    time.sleep(1.2)
+    tool_body = {"messages": [{"role": "user", "content": "list files"}],
+                 "tools": [{"type": "function", "function": {"name": "shell", "parameters": {"type": "object", "properties": {}}}}]}
+    r = c.post(f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions", json=tool_body, timeout=30)
+    msg = r.json()["choices"][0]["message"]
+    check("blocking chat with tools -> tool_calls in the message, served locally",
+          r.headers.get("X-Served-By") == "cluster" and msg.get("tool_calls", [{}])[0].get("function", {}).get("name") == "shell",
+          f"{r.headers.get('X-Served-By')} {str(msg)[:80]}")
+    raw = c.post(f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions", json={**tool_body, "stream": True}, timeout=30)
+    check("streaming chat with tools -> tool_calls delta streamed from the cluster's blocking path",
+          raw.headers.get("X-Served-By") == "cluster" and '"tool_calls"' in raw.text and raw.text.count("data: [DONE]") == 1,
+          raw.text[:120])
 
     print("\n--- Responses API (Codex) ---")
     set_mode(local="ok", cloud="ok", status="healthy")
