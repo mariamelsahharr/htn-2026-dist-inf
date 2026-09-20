@@ -141,6 +141,7 @@ class Worker:
         self.oks = 0
         self.last_seen: float | None = None
         self.last_probe: float | None = None
+        self.telemetry: dict | None = None
 
     @property
     def addr(self) -> str:
@@ -168,6 +169,7 @@ class Worker:
             "host": self.host, "port": self.port, "alive": self.alive, "in_set": in_set,
             "consecutive_fails": self.fails,
             "last_seen": self.last_seen, "last_probe": self.last_probe,
+            "telemetry": self.telemetry,
         }
 
 
@@ -189,6 +191,8 @@ class Config:
     interval: float = 2.0
     probe_cmd: str = DEFAULT_PROBE_CMD
     probe_timeout: float = 3.0
+    telemetry_port: int = 9997      # node_agent.py on every Pi; 0 disables
+    telemetry_timeout: float = 1.0
     fail_after: int = 2
     ok_after: int = 2
     rejoin_grace: float = 10.0
@@ -221,6 +225,7 @@ class Supervisor:
         spawn: Callable[[list[str], str], subprocess.Popen] | None = None,
         reset_worker: Callable[[str], bool] | None = None,
         api_check: Callable[[], bool] | None = None,
+        telemetry: Callable[[str], dict | None] | None = None,
     ) -> None:
         self.cfg = cfg
         self.workers = [Worker(h, p, cfg.fail_after, cfg.ok_after) for h, p in cfg.workers]
@@ -248,6 +253,8 @@ class Supervisor:
         self._spawn = spawn or self._spawn_root
         self._reset_worker = reset_worker or self._ssh_reset
         self._api_check = api_check or self._models_ok
+        self._telemetry = telemetry or self._fetch_telemetry
+        self.root_telemetry: dict | None = None
         self._pool = ThreadPoolExecutor(max_workers=max(1, len(self.workers)))
         self.model_header: dict | None = None
         self.valid_counts, self.node_counts_source = self._resolve_node_counts()
@@ -322,9 +329,24 @@ class Supervisor:
             change = w.record(ok, now)
             if change is not None:
                 self.event(f"worker {w.host} {'reachable' if change else 'unreachable'}")
+        if self.cfg.telemetry_port:
+            hosts = [w.host for w in self.workers if w.alive] + ["127.0.0.1"]
+            docs = dict(zip(hosts, self._pool.map(self._telemetry, hosts), strict=True))
+            for w in self.workers:
+                w.telemetry = docs.get(w.host) if w.alive else None
+            self.root_telemetry = docs.get("127.0.0.1")
 
     def alive_workers(self) -> list[Worker]:
         return [w for w in self.workers if w.alive]
+
+    def _fetch_telemetry(self, host: str) -> dict | None:
+        url = f"http://{host}:{self.cfg.telemetry_port}/telemetry"
+        try:
+            with urllib.request.urlopen(url, timeout=self.cfg.telemetry_timeout) as r:
+                doc = json.loads(r.read().decode())
+                return doc if isinstance(doc, dict) else None
+        except (urllib.error.URLError, OSError, ValueError):
+            return None
 
     def _ping(self, host: str) -> bool:
         cmd = shlex.split(self.cfg.probe_cmd.format(host=shlex.quote(host)))
@@ -595,6 +617,7 @@ class Supervisor:
                 "ready_at": self.ready_at,
                 "load_seconds": self.load_seconds,
                 "last_api_ok": self.last_api_ok,
+                "telemetry": self.root_telemetry,
             },
             "generation": self.generation,
             "restarts": self.restarts,
@@ -695,6 +718,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--interval", type=float, default=d.interval, help="probe period in seconds")
     ap.add_argument("--probe-cmd", default=d.probe_cmd, help="liveness command; {host} is substituted")
     ap.add_argument("--probe-timeout", type=float, default=d.probe_timeout)
+    ap.add_argument("--telemetry-port", type=int, default=d.telemetry_port,
+                    help="node_agent.py port on every Pi, folded into /status; 0 disables")
     ap.add_argument("--fail-after", type=int, default=d.fail_after,
                     help="consecutive probe misses before a worker counts as dead")
     ap.add_argument("--ok-after", type=int, default=d.ok_after,
@@ -743,6 +768,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
         interval=args.interval,
         probe_cmd=args.probe_cmd,
         probe_timeout=args.probe_timeout,
+        telemetry_port=args.telemetry_port,
         fail_after=args.fail_after,
         ok_after=args.ok_after,
         rejoin_grace=args.rejoin_grace,

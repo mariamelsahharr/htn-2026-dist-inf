@@ -49,6 +49,27 @@
         creates: /home/pi/distributed-llama/dllama-api
       become_user: pi
 
+    - name: Install the telemetry agent (temperature, throttling, memory on :9997)
+      copy:
+        src: agent/node_agent.py
+        dest: /home/pi/node_agent.py
+        owner: pi
+        group: pi
+        mode: "0755"
+
+    - name: Install the agent unit
+      copy:
+        src: systemd/dllama-agent.service
+        dest: /etc/systemd/system/dllama-agent.service
+        mode: "0644"
+
+    - name: Enable and start the agent
+      systemd:
+        name: dllama-agent
+        enabled: yes
+        state: restarted
+        daemon_reload: yes
+
 
 - name: Root SSH key (the supervisor restarts workers over SSH)
   hosts: root

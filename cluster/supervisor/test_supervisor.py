@@ -261,7 +261,7 @@ class Lab:
             api_check_interval=0.5, api_stall_timeout=0,
         )
         self.sup = Supervisor(self.cfg, probe=self.probe, spawn=self.spawn,
-                              reset_worker=self.reset)
+                              reset_worker=self.reset, telemetry=self.telemetry)
         self.thread = threading.Thread(target=self.sup.run, daemon=True)
 
     def dead(self) -> set:
@@ -276,6 +276,9 @@ class Lab:
 
     def probe(self, host: str) -> bool:
         return host not in self.dead()
+
+    def telemetry(self, host: str) -> dict | None:
+        return None if host in self.dead() else {"temp_c": 50.0 + len(host), "throttled": "0x0", "flags": []}
 
     def spawn(self, cmd, reason):
         env = {**os.environ, "FAKE_DEAD_FILE": self.dead_file,
@@ -474,3 +477,20 @@ def test_snapshot_matches_the_published_example(tmp_path):
     assert set(snap) == set(example)
     assert set(snap["root"]) == set(example["root"])
     assert set(snap["workers"][0]) == set(example["workers"][0])
+
+
+def test_telemetry_rides_along_with_liveness(lab):
+    wait_for(lambda: lab.sup.state == HEALTHY, 20)
+    doc = lab.sup.last_snapshot()
+    by_host = {w["host"]: w for w in doc["workers"]}
+    assert by_host["w1"]["telemetry"]["temp_c"] == 52.0 and doc["root"]["telemetry"]["temp_c"] == 59.0
+    lab.set_dead("w3")
+    wait_for(lambda: lab.sup.last_snapshot()["workers"][2]["alive"] is False, 20)
+    assert lab.sup.last_snapshot()["workers"][2]["telemetry"] is None, "a dead worker has no telemetry, not stale telemetry"
+
+
+def test_telemetry_off_leaves_nulls(tmp_path):
+    cfg = Config(workers=[("w1", 9998)], telemetry_port=0, model="m.m", tokenizer="t.t")
+    sup = Supervisor(cfg, probe=lambda h: True, telemetry=lambda h: {"temp_c": 1})
+    sup.probe_all()
+    assert sup.workers[0].telemetry is None and sup.root_telemetry is None

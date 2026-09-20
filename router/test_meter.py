@@ -5,7 +5,7 @@ test_meter.py - token counting and rates for one answer. Run: pytest -q
 import json
 import time
 
-from app import TokenMeter
+from app import TokenMeter, _percentile
 from routing import Tier
 
 LOCAL = Tier("cluster", "llama", "http://pi/v1", is_local=True)
@@ -70,3 +70,7 @@ def test_non_content_lines_are_ignored():
     m.see(": keepalive")
     m.see("data: not json")
     assert m.result(time.time() - 1)["gen_tokens"] == 0 and "tps" not in m.result(time.time() - 1)
+
+
+def test_percentiles_are_nearest_rank():
+    assert _percentile([5, 1, 3], 50) == 3 and _percentile([5, 1, 3], 95) == 5 and _percentile([7], 95) == 7

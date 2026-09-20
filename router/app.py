@@ -146,6 +146,7 @@ class State:
     breaker: Breaker = field(default_factory=Breaker)
     cache: dict[str, str] = field(default_factory=dict)
     recent: deque = field(default_factory=lambda: deque(maxlen=50))   # last served requests, for rates
+    inflight: Counter = field(default_factory=Counter)    # upstream -> requests being answered now
     started: float = field(default_factory=time.time)
 
 
@@ -251,7 +252,13 @@ Attempt = Callable[[str, dict[str, Any]], Awaitable[Any]]
 
 
 RECENT_FIELDS = ("request_id", "served_by", "routed_to", "reason", "fallback", "stream", "latency_ms", "ttft_ms",
-                 "prompt_tokens", "gen_tokens", "tokens_source", "prefill_tps", "decode_tps", "tps", "ts")
+                 "prompt_tokens", "gen_tokens", "tokens_source", "prefill_tps", "decode_tps", "tps",
+                 "nodes_active", "cluster_state", "ts")
+
+
+def _percentile(vals: list[float], pct: float) -> float:
+    ordered = sorted(vals)
+    return ordered[min(len(ordered) - 1, int(round(pct / 100 * (len(ordered) - 1))))]
 
 
 class TokenMeter:
@@ -330,6 +337,7 @@ class Router:
             fallback: bool = False, error: str | None = None, **extra: Any) -> None:
         record = {**decision.as_log(), "served_by": served_by, "stream": stream,
                   "latency_ms": _ms(t0), "fallback": fallback, "error": error or None, **extra,
+                  "nodes_active": self.st.status_detail.get("nodes_active"), "cluster_state": self.st.cluster_status,
                   "ts": time.time(), "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())}
         if served_by not in ("none", CACHE):
             self.st.recent.append({k: record[k] for k in RECENT_FIELDS if k in record})
@@ -406,8 +414,12 @@ class Router:
         tier = self.cfg.tier(upstream)
         read = self.s.local_read_timeout if tier.is_local else self.s.read_timeout
         timeout = httpx2.Timeout(connect=self.s.connect_timeout, read=read, write=10.0, pool=10.0)
-        r = await self.client.post(tier.chat_url, json=tier.payload(payload, stream=False),
-                                   headers=tier.headers(), timeout=timeout)
+        self.st.inflight[upstream] += 1
+        try:
+            r = await self.client.post(tier.chat_url, json=tier.payload(payload, stream=False),
+                                       headers=tier.headers(), timeout=timeout)
+        finally:
+            self.st.inflight[upstream] -= 1
         self.st.http_versions[upstream] = r.http_version
         if r.status_code >= 400:
             raise UpstreamError(f"HTTP {r.status_code}: {r.text[:200]}")
@@ -430,6 +442,15 @@ class Router:
         tier = self.cfg.tier(upstream)
         timeout = httpx2.Timeout(connect=self.s.connect_timeout, read=self.s.read_timeout,
                                  write=10.0, pool=10.0)
+        self.st.inflight[upstream] += 1
+        try:
+            async for item in self._sse_events(tier, upstream, body, timeout):
+                yield item
+        finally:
+            self.st.inflight[upstream] -= 1
+
+    async def _sse_events(self, tier: Tier, upstream: str, body: dict[str, Any],
+                          timeout: httpx2.Timeout) -> AsyncIterator[tuple[bool, str]]:
         async with self.client.sse(tier.chat_url, method="POST", json=tier.payload(body, stream=True),
                                    headers=tier.headers(), timeout=timeout) as source:
             r = source.response
@@ -698,6 +719,7 @@ class Router:
             "cluster_status": self.st.cluster_status,
             "breakers_open_s": self.st.breaker.snapshot(time.time()),
             "rates": self.rates(),
+            "inflight": dict(self.st.inflight),
             "recent": list(self.st.recent),
         }
 
@@ -706,10 +728,12 @@ class Router:
         out: dict[str, dict[str, Any]] = {}
         for up in {r["served_by"] for r in self.st.recent}:
             rows = [r for r in self.st.recent if r["served_by"] == up]
-            summary: dict[str, Any] = {"n": len(rows)}
+            summary: dict[str, Any] = {"n": len(rows), "inflight": self.st.inflight.get(up, 0)}
             for key in ("decode_tps", "prefill_tps", "tps", "ttft_ms", "latency_ms"):
                 vals = [r[key] for r in rows if r.get(key) is not None]
                 summary[key] = round(sum(vals) / len(vals), 1) if vals else None
+                summary[f"{key}_p50"] = _percentile(vals, 50) if vals else None
+                summary[f"{key}_p95"] = _percentile(vals, 95) if vals else None
             out[up] = summary
         return out
 

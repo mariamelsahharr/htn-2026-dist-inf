@@ -440,6 +440,11 @@ def main():
     check("/stats has per-upstream rates and the recent answers",
           st["rates"]["cluster"]["decode_tps"] > 0 and st["rates"]["baseten"]["n"] >= 1 and len(st["recent"]) > 5,
           json.dumps(st.get("rates"))[:160])
+    check("rates carry p50/p95 and nothing is in flight between requests",
+          st["rates"]["cluster"]["latency_ms_p95"] >= st["rates"]["cluster"]["latency_ms_p50"]
+          and all(v == 0 for v in st["inflight"].values()), json.dumps(st.get("inflight")))
+    check("every answer records the cluster size it was served under",
+          rec.get("cluster_state") == "healthy" and "nodes_active" in rec, str(rec.get("cluster_state")))
 
     lines = open("/tmp/itest_decisions.jsonl").read().strip().split("\n")
     check("decision log written as JSONL", len(lines) > 10, f"{len(lines)} lines")
