@@ -1,5 +1,3 @@
-import { baseUrl, headersFor, type Settings } from "@/lib/settings"
-
 // Types for what the router serves. Field names mirror router/app.py (`stats()`) and
 // cluster/supervisor/status.example.json; everything optional is optional there too.
 
@@ -91,17 +89,22 @@ export interface Stats {
   cluster: ClusterStatus
 }
 
-async function getJson<T>(s: Settings, path: string): Promise<T> {
-  const r = await fetch(`${baseUrl(s)}${path}`, { cache: "no-store", headers: headersFor(s) })
+async function getJson<T>(path: string): Promise<T> {
+  const r = await fetch(path, { cache: "no-store" })
   if (!r.ok) throw new Error(`${path} answered ${r.status}`)
   return (await r.json()) as T
 }
 
-export const getStats = (s: Settings) => getJson<Stats>(s, "/stats")
+export const getStats = () => getJson<Stats>("/stats")
 
-export async function getModels(s: Settings): Promise<string[]> {
-  const body = await getJson<{ data: { id: string }[] }>(s, "/v1/models")
-  return body.data.map((m) => m.id)
+export interface Model {
+  id: string
+  owned_by: string // the tier that serves it: cluster, baseten, openai, gemini, snowflake
+}
+
+export async function getModels(): Promise<Model[]> {
+  const body = await getJson<{ data: Model[] }>("/v1/models")
+  return body.data.filter((m) => !m.id.endsWith("-heavy"))
 }
 
 // One color per upstream everywhere on the page; checked for contrast on both grounds.

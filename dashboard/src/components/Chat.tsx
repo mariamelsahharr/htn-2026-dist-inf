@@ -44,7 +44,7 @@ export function Chat() {
     const t0 = performance.now()
     try {
       await streamChat(
-        settings,
+        settings.model,
         history,
         (piece) => patch(botId, (m) => ({ ...m, text: m.text + piece })),
         (served) => patch(botId, (m) => ({ ...m, served })),
@@ -60,13 +60,13 @@ export function Chat() {
     }
   }
 
-  const target = settings.provider === "auto" ? "wherever the router decides" : settings.provider
+  const target = settings.model === "auto" ? "wherever the router decides" : settings.model
 
   return (
-    <section aria-label="Chat" className="bg-card border-border flex h-full min-h-[30rem] flex-col rounded-lg border shadow-sm">
+    <section aria-label="Chat" className="bg-card border-border flex h-full min-h-[30rem] min-w-0 flex-col rounded-lg border shadow-sm">
       <div className="border-border flex items-baseline justify-between border-b px-4 py-3">
         <h2 className="text-base font-medium">Ask</h2>
-        <span className="text-muted-foreground text-xs">goes to {target}</span>
+        <span className="text-muted-foreground truncate text-xs">{target}</span>
       </div>
       {/* column-reverse pins the newest message to the bottom while streaming, no scroll code */}
       <div className="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto px-4 py-3">
@@ -82,8 +82,8 @@ export function Chat() {
               <div
                 className={
                   m.role === "user"
-                    ? "bg-primary text-primary-foreground max-w-[85%] rounded-lg px-3 py-2 text-sm"
-                    : "bg-muted max-w-[85%] rounded-lg px-3 py-2 text-sm"
+                    ? "bg-primary text-primary-foreground max-w-[85%] rounded-lg px-3 py-2 text-sm break-words"
+                    : "bg-muted max-w-[85%] rounded-lg px-3 py-2 text-sm break-words"
                 }
               >
                 {m.role === "assistant" && (
@@ -117,7 +117,6 @@ export function Chat() {
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask something"
           disabled={busy}
-          autoFocus
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()

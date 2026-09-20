@@ -127,6 +127,13 @@ class RouterConfig:
             return self.local_tier
         return self.tiers[upstream]
 
+    def tier_for_model(self, model: str) -> str | None:
+        """The tier whose model (or tools model) was asked for by name; None for `auto` and the local ids."""
+        for name, tier in self.tiers.items():
+            if model in (tier.model, tier.tools_model):
+                return name
+        return None
+
     def model_for(self, upstream: str, with_tools: bool = False) -> str:
         return self.tier(upstream).model_for_request(with_tools)
 
@@ -251,10 +258,14 @@ def route(body: dict[str, Any], headers: dict[str, str], cluster_status: str, cf
             forced=forced,
         )
 
-    # 0. explicit override (demo control)
+    # 0. explicit override: the X-Force-Upstream header, or asking for a tier's model by name
+    #    (what any OpenAI client can do; `auto` and the local ids leave the choice to the router)
     forced = headers.get("x-force-upstream", "").strip().lower()
     if forced == CLUSTER or forced in cfg.tiers:
         return finish(forced, "forced_by_header", forced=True)
+    pinned = cfg.tier_for_model(model_req)
+    if pinned:
+        return finish(pinned, "model_pinned", forced=True)
 
     # 1. tool calls: the local model is not tool-tuned
     if body.get("tools") and cfg.tool_tier:
@@ -379,13 +390,13 @@ def continuation_body(
 def models_payload(cfg: RouterConfig) -> dict[str, Any]:
     """/v1/models. Clients use this to populate model pickers and to sanity
     check the endpoint before sending real traffic, so it has to be right."""
-    ids = [cfg.local_model, cfg.local_model + "-heavy"]
+    entries = [(cfg.local_model, CLUSTER), (cfg.local_model + "-heavy", cfg.heavy_tier)]
     for name in cfg.cloud_tiers():
         tier = cfg.tiers[name]
         for model in (tier.model, tier.tools_model):
-            if model and model not in ids:
-                ids.append(model)
+            if model and model not in {m for m, _ in entries}:
+                entries.append((model, name))
     return {
         "object": "list",
-        "data": [{"id": i, "object": "model", "created": 0, "owned_by": "pi-cluster"} for i in ids],
+        "data": [{"id": m, "object": "model", "created": 0, "owned_by": owner} for m, owner in entries],
     }

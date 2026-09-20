@@ -489,3 +489,23 @@ def test_tier_asks_for_usage_only_when_it_supports_it():
     assert "stream_options" not in Tier("snowflake", "m", "https://x/v1", "k").payload({"messages": []}, stream=True)
     kept = t.payload({"messages": [], "stream_options": {"other": 1}}, stream=True)["stream_options"]
     assert kept == {"other": 1, "include_usage": True}
+
+
+def test_asking_for_a_tiers_model_by_name_pins_that_tier():
+    cfg = tiered()
+    d = route({"model": cfg.tiers["gemini"].model, "messages": [{"role": "user", "content": "hi"}]}, {}, "healthy", cfg)
+    assert (d.upstream, d.reason, d.forced) == ("gemini", "model_pinned", True)
+    d = route({"model": "auto", "messages": [{"role": "user", "content": "hi"}]}, {}, "healthy", cfg)
+    assert d.upstream == CLUSTER and d.reason != "model_pinned"
+    d = route({"model": cfg.local_model, "messages": [{"role": "user", "content": "hi"}]}, {}, "healthy", cfg)
+    assert d.reason != "model_pinned"
+    header = route({"model": cfg.tiers["gemini"].model, "messages": []}, {"X-Force-Upstream": "openai"}, "healthy", cfg)
+    assert header.upstream == "openai", "the header still wins over the model name"
+
+
+def test_models_payload_says_which_tier_owns_each_model():
+    owners = {m["id"]: m["owned_by"] for m in models_payload(tiered())["data"]}
+    cfg = tiered()
+    assert owners[cfg.local_model] == CLUSTER
+    assert owners[cfg.tiers["gemini"].model] == "gemini"
+    assert owners[cfg.local_model + "-heavy"] == cfg.heavy_tier

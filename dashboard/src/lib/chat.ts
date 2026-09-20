@@ -1,6 +1,5 @@
 import OpenAI from "openai"
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions"
-import { baseUrl, headersFor, type Settings } from "@/lib/settings"
 
 export interface Served {
   servedBy: string
@@ -8,23 +7,19 @@ export interface Served {
   requestId: string | null
 }
 
-// The router is OpenAI-compatible, so the browser talks to it with the real SDK.
-// A forced provider rides along as X-Force-Upstream; the router ignores the key.
+// The router is OpenAI-compatible, so the browser talks to it with the real SDK on the
+// same origin. Asking for a tier's model by name pins that tier; "auto" lets it decide.
+const client = new OpenAI({ baseURL: `${window.location.origin}/v1`, apiKey: "dashboard", dangerouslyAllowBrowser: true })
+
 export async function streamChat(
-  settings: Settings,
+  model: string,
   messages: ChatCompletionMessageParam[],
   onDelta: (text: string) => void,
   onServed: (served: Served) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const client = new OpenAI({
-    baseURL: `${baseUrl(settings)}/v1`,
-    apiKey: settings.apiKey || "dashboard",
-    dangerouslyAllowBrowser: true,
-    defaultHeaders: headersFor(settings),
-  })
   const { data: stream, response } = await client.chat.completions
-    .create({ model: settings.model === "auto" ? "auto" : settings.model, stream: true, messages }, { signal })
+    .create({ model, stream: true, messages }, { signal })
     .withResponse()
   onServed({
     servedBy: response.headers.get("x-served-by") ?? "?",

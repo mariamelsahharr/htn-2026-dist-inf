@@ -5,7 +5,7 @@ import { Chat } from "@/components/Chat"
 import { NodesPanel } from "@/components/NodesPanel"
 import { RatesPanel } from "@/components/RatesPanel"
 import { RecentChart } from "@/components/RecentChart"
-import { RouterBar } from "@/components/RouterBar"
+import { ModelPicker } from "@/components/ModelPicker"
 import { StatusStrip } from "@/components/StatusStrip"
 import { Button } from "@/components/ui/button"
 import { useStats } from "@/hooks/useStats"
@@ -38,8 +38,8 @@ function Board() {
       {isPending && <p className="text-muted-foreground text-sm">Connecting to the router.</p>}
       {error && (
         <p className="text-critical max-w-prose text-sm">
-          The router did not answer ({error.message}). Check the address above, or start it with{" "}
-          <code>python app.py</code> in <code>router/</code>.
+          The router did not answer ({error.message}). Start it with <code>python app.py</code> in{" "}
+          <code>router/</code> and reload.
         </p>
       )}
       {data && (
@@ -47,7 +47,7 @@ function Board() {
           <StatusStrip stats={data} />
           <div className="grid gap-6 lg:grid-cols-[2fr_3fr]">
             <Chat />
-            <div className="flex flex-col gap-6">
+            <div className="flex min-w-0 flex-col gap-6">
               <RatesPanel stats={data} />
               <RecentChart recent={data.recent} />
               <NodesPanel cluster={data.cluster} />
@@ -80,15 +80,12 @@ export default function App() {
           <main className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-5 sm:px-6">
             <header className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h1 className="text-xl font-semibold">Pi cluster router</h1>
-                <p className="text-muted-foreground max-w-prose text-sm">
-                  Llama 3.2 3B split across four Raspberry Pis, with a cloud model taking over when the cluster is
-                  busy, small, or gone.
-                </p>
+                <h1 className="text-xl font-semibold">PiHive</h1>
+                <p className="text-muted-foreground text-sm">Local inference on Raspberry Pis, cloud when it has to be.</p>
               </div>
               <ThemeButton theme={settings.theme} onChange={(theme) => update({ theme })} />
             </header>
-            <RouterBar />
+            <ModelPicker />
             <Board />
           </main>
         </div>

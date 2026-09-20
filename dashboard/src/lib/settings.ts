@@ -1,31 +1,21 @@
 import { createContext, useContext } from "react"
 
-// Where the dashboard points and how it asks. Kept in this browser only; the router
-// ignores the key unless a proxy in front of it checks one.
+// What this browser remembers: which model to ask for and the theme. The router
+// serves this page, so there is no address to configure and no key to hold.
 export interface Settings {
-  routerUrl: string
-  apiKey: string
-  provider: string // "auto" or an upstream name, sent as X-Force-Upstream
-  model: string // "auto" or a model id from /v1/models
+  model: string // "auto" lets the router decide; a tier's model id pins that tier
   theme: "system" | "light" | "dark"
 }
 
-export const PROVIDERS = ["auto", "cluster", "baseten", "openai", "gemini", "snowflake"] as const
-
 const KEY = "pi-router-dashboard"
 
-export const DEFAULTS: Settings = {
-  routerUrl: "",
-  apiKey: "",
-  provider: "auto",
-  model: "auto",
-  theme: "system",
-}
+export const DEFAULTS: Settings = { model: "auto", theme: "system" }
 
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEY)
-    return raw ? { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Settings>) } : DEFAULTS
+    const saved = raw ? (JSON.parse(raw) as Partial<Settings>) : {}
+    return { model: saved.model ?? DEFAULTS.model, theme: saved.theme ?? DEFAULTS.theme }
   } catch {
     return DEFAULTS
   }
@@ -37,15 +27,6 @@ export function saveSettings(s: Settings): void {
   } catch {
     // private window or blocked storage: the session still works, it just forgets
   }
-}
-
-export const baseUrl = (s: Settings): string => (s.routerUrl || window.location.origin).replace(/\/+$/, "")
-
-export function headersFor(s: Settings): Record<string, string> {
-  const h: Record<string, string> = {}
-  if (s.apiKey) h.Authorization = `Bearer ${s.apiKey}`
-  if (s.provider !== "auto") h["X-Force-Upstream"] = s.provider
-  return h
 }
 
 export const SettingsContext = createContext<{ settings: Settings; update: (patch: Partial<Settings>) => void }>({
