@@ -14,9 +14,11 @@ export const DEMO_PROMPTS: { label: string; hint: string; text: string }[] = [
   {
     label: "Pasted code",
     hint: "hundreds of lines of code, too complex for the Pis",
+    // Many short lines: over the code-lines rule while staying under the size rule, so the
+    // badge says "pasted code" rather than "long prompt".
     text:
       "Explain what this does in one paragraph:\n\n```python\n" +
-      Array.from({ length: 260 }, (_, i) => `def step_${i}(x):\n    return x + ${i}`).join("\n") +
+      Array.from({ length: 420 }, (_, i) => `x${i} = ${i}`).join("\n") +
       "\n```",
   },
 ]

@@ -1,6 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { RotateCcw, SendHorizontal, Square } from "lucide-react"
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions"
 import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,6 +7,7 @@ import { UpstreamBadge } from "@/components/UpstreamBadge"
 import { STATS_KEY } from "@/hooks/useStats"
 import { colorFor } from "@/lib/api"
 import { isAbort, streamChat } from "@/lib/chat"
+import { recentHistory } from "@/lib/history"
 import { DEMO_PROMPTS } from "@/lib/demo"
 import { useSettings } from "@/lib/settings"
 import { appendMessages, patchMessage, setTranscript, useTranscript, type Message } from "@/lib/transcript"
@@ -92,10 +92,7 @@ export function Chat() {
     const text = (preset ?? input).trim()
     if (!text || busy) return
     setInput("")
-    const history: ChatCompletionMessageParam[] = [
-      ...messages.filter((m) => !m.error && m.text).map((m) => ({ role: m.role, content: m.text })),
-      { role: "user", content: text },
-    ]
+    const history = recentHistory(messages, text)
     const botId = crypto.randomUUID()
     appendMessages({ id: crypto.randomUUID(), role: "user", text }, { id: botId, role: "assistant", text: "" })
     setBusy(true)
