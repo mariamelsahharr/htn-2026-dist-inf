@@ -72,8 +72,8 @@ export function Chat() {
         <div className="space-y-3">
           {messages.length === 0 && (
             <p className="text-muted-foreground max-w-prose text-sm">
-              Short questions stay on the Pis. Long prompts, tool calls, or a dead cluster go to the cloud. Each
-              answer says who served it.
+              Short, plain questions stay on the Pis. Long prompts, pasted code, questions that ask for deep
+              analysis, or a cluster that is down go to the cloud. Each answer says who served it and why.
             </p>
           )}
           {messages.map((m) => (
