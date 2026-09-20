@@ -121,6 +121,7 @@ export interface Stats {
   fallbacks: Record<string, number>
   cluster_status: string
   status_age_s: number | null
+  status_failures?: number // consecutive status polls that returned nothing
   cluster_waiting?: number
   breakers_open_s: Record<string, number>
   rates: Record<string, RateSummary>

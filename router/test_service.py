@@ -311,6 +311,52 @@ def test_validated_body_keeps_an_explicit_null_and_drops_what_was_not_sent():
     assert "model" not in body and "max_tokens" not in body and body["stream"] is True
 
 
+async def test_a_timed_out_status_poll_keeps_the_last_verdict_during_the_grace_period(tmp_path):
+    """One dropped poll on a lossy link must not send every request to the cloud; a refused
+    connection (nobody there) still flips to unreachable at once."""
+    handler, _ = fake_upstream()
+    mode = {"status": "ok"}
+
+    async def flaky(request: httpx2.Request) -> httpx2.Response:
+        pi = "pi" in request.url.host
+        if pi and mode["status"] == "timeout":
+            raise httpx2.ReadTimeout("lossy link", request=request)
+        if pi and mode["status"] == "refused":
+            raise httpx2.ConnectError("nobody there", request=request)
+        return await handler(request)
+
+    settings = Settings(
+        _env_file=None,
+        cloud_api_key="k",
+        cloud_base_url="http://cloud/v1",
+        local_base_url="http://pi:9990",
+        status_url="http://pi:9991/status",
+        decision_log=str(tmp_path / "decisions.jsonl"),
+        cache_file=str(tmp_path / "demo_cache.json"),
+        status_grace_s=10,
+    )
+    router = Router(settings, httpx2.AsyncClient(transport=httpx2.MockTransport(flaky)))
+    await router.refresh_status()
+    assert router.st.cluster_status == "healthy" and router.st.status_failures == 0
+
+    mode["status"] = "timeout"
+    await router.refresh_status()
+    await router.refresh_status()
+    assert router.st.cluster_status == "healthy" and router.st.status_failures == 2  # held
+
+    router.st.status_last_ok -= 11  # the grace period runs out
+    await router.refresh_status()
+    assert router.st.cluster_status == "unreachable" and router.st.status_failures == 3
+
+    mode["status"] = "ok"
+    await router.refresh_status()
+    assert router.st.cluster_status == "healthy" and router.st.status_failures == 0
+
+    mode["status"] = "refused"
+    await router.refresh_status()
+    assert router.st.cluster_status == "unreachable"  # no grace for a refused connection
+
+
 async def test_cluster_model_name_comes_from_the_supervisor(tmp_path):
     router, calls = make_router(tmp_path)
     assert router.cfg.local_model == "qwen3-30b-a3b"

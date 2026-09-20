@@ -35,7 +35,7 @@ export function ModelPicker() {
     updateSettings({ model: id })
     setOpen(false)
   }
-  const health = (tier: string) => stats.data?.tier_health[tier]
+  const health = (tier: string) => stats.data?.tier_health?.[tier] // absent on an older router
   const down = (tier: string) => health(tier)?.startsWith("down") ?? false
 
   return (

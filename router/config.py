@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     local_base_url: str = "http://192.168.50.13:9990"  # pi-node-3, wired; mDNS is not trusted here
     local_model: str = "qwen3-30b-a3b"  # until the supervisor says what it loaded (adopt_local_model)
-    status_url: str = "http://192.168.50.13:9991/status"
+    status_url: str = "http://192.168.50.10:9991/status"
 
     cloud_base_url: str = "https://inference.baseten.co/v1"
     cloud_api_key: SecretStr = Field(SecretStr(""), validation_alias=AliasChoices("CLOUD_API_KEY", "BASETEN_API_KEY"))
@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     local_prefill_tps: float = Field(25.0, gt=0)  # starting estimate; the router learns the real rate from answers
     connect_timeout: float = Field(3.0, gt=0)
     status_interval: float = Field(2.0, gt=0)
+    # A status poll that times out on a lossy link keeps the last good verdict this long before
+    # the root is probed and the cluster declared unreachable. A refused connection is not a
+    # lossy link, it is nobody there, and is never held.
+    status_grace_s: float = Field(10.0, ge=0)
     min_local_nodes: int = Field(2, ge=1)  # a degraded cluster below this many nodes routes to cloud
     local_concurrency: int = Field(1, ge=1)  # the Pi API is single-threaded; more than this only queues
     local_queue_max: int = Field(2, ge=0)  # requests allowed to wait for the cluster before spilling to cloud

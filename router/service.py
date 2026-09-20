@@ -144,12 +144,32 @@ class Router:
             self.st.status_detail = data if isinstance(data, dict) else {}
             self.st.cluster_status = cluster_state(self.st.status_detail, self.s.min_local_nodes)
             self.st.status_last_ok = time.monotonic()
+            self.st.status_failures = 0
             self.adopt_local_model(self.st.status_detail)
+        except httpx2.TimeoutException:
+            # A timeout is what a lossy link looks like, not what a dead root looks like: keep
+            # the last verdict for status_grace_s so one dropped poll does not send every
+            # request to the cloud. A refused connection falls through to the probe at once.
+            self.st.status_failures += 1
+            held = self.st.status_last_ok and time.monotonic() - self.st.status_last_ok < self.s.status_grace_s
+            if held:
+                log.warning(
+                    "status poll timed out (%d in a row); keeping %s", self.st.status_failures, self.st.cluster_status
+                )
+                return
+            await self._status_lost(after_grace=True)
         except Exception:
-            try:
-                self.st.cluster_status = await self.probe_root()
-            except Exception:
-                self.st.cluster_status = "unreachable"
+            self.st.status_failures += 1
+            await self._status_lost()
+
+    async def _status_lost(self, after_grace: bool = False) -> None:
+        """No status document: ask the root itself, and call it unreachable if that fails too.
+        Once the grace period has run out, a probe that times out is unreachable as well: the
+        link has been dropping for that long, this is no longer a busy root."""
+        try:
+            self.st.cluster_status = await self.probe_root(timeout_is_busy=not after_grace)
+        except Exception:
+            self.st.cluster_status = "unreachable"
 
     def adopt_local_model(self, status: dict[str, Any]) -> None:
         """The cluster's model name comes from what the supervisor actually loaded, not a setting:
@@ -160,7 +180,7 @@ class Router:
             if name and name != self.cfg.local_model:
                 self.cfg.local_model = name
 
-    async def probe_root(self) -> str:
+    async def probe_root(self, timeout_is_busy: bool = True) -> str:
         """healthy if the root API answers /v1/models. A read timeout keeps the previous verdict:
         dllama-api is single-threaded and simply queues the GET during a generation."""
         try:
@@ -169,6 +189,8 @@ class Router:
         except httpx2.ConnectTimeout:
             return "unreachable"  # no host there at all (a laptop off the Pi subnet), not a busy root
         except httpx2.TimeoutException:
+            if not timeout_is_busy:
+                return "unreachable"
             return self.st.cluster_status if self.st.cluster_status != "unknown" else "healthy"
         except httpx2.HTTPError:
             return "unreachable"
@@ -438,6 +460,7 @@ class Router:
             "local_prefill_tps_estimate": round(self.up.prefill.value, 1),
             "recent": list(self.st.recent),
             "status_age_s": round(time.monotonic() - self.st.status_last_ok, 1) if self.st.status_last_ok else None,
+            "status_failures": self.st.status_failures,
             "decision_log_queue_depth": self.decisions.depth,
             "attestor_alive": self.attestor.alive if self.attestor else None,
             "cluster": self.st.status_detail,  # the supervisor document as last seen, for the dashboard

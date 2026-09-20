@@ -21,6 +21,7 @@ class State:
     cluster_status: str = "unknown"
     status_detail: dict[str, Any] = field(default_factory=dict)
     status_last_ok: float = 0.0
+    status_failures: int = 0  # consecutive status polls that did not return a document
     counts: Counter = field(default_factory=Counter)  # (upstream, reason) -> n
     fallbacks: Counter = field(default_factory=Counter)  # reason -> n
     served: Counter = field(default_factory=Counter)  # upstream -> n
