@@ -1,0 +1,24 @@
+[Unit]
+Description=llama.cpp RPC backend (ggml-rpc-server; holds this node's share of the layers)
+After=network-online.target
+Wants=network-online.target
+# one inference stack at a time: both would fight for the same RAM
+Conflicts=dllama-worker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/llama.cpp
+Nice=-20
+OOMScoreAdjust=-500
+# -c caches tensors under ~/.cache/llama.cpp/rpc: the first load streams this node's share
+# from the root, every relaunch after that reads it from the local card instead.
+# The RPC protocol has no auth; 50052 must only be reachable on the wired cluster subnet.
+ExecStart=/home/pi/llama.cpp/build/bin/ggml-rpc-server -H 0.0.0.0 -p 50052 -t 4 -c
+Restart=always
+RestartSec=2
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

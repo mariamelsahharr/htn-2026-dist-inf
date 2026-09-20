@@ -13,13 +13,24 @@ WORKERS=(
 
 # dllama-supervisor launches dllama-api itself and handles 4 -> 2 -> 1 failover.
 # ROOT_UNIT=dllama-root ./cluster up   is the one-command rollback to the plain root.
-ROOT_UNIT="${ROOT_UNIT:-dllama-supervisor}"
+# BACKEND=llamacpp drives the llama.cpp RPC stack instead (Gemma 4); it is the default
+# once bootstrap-llamacpp.yml has enabled llama-supervisor on this root.
+if [ -z "${BACKEND:-}" ] && systemctl is-enabled --quiet llama-supervisor 2>/dev/null; then
+  BACKEND=llamacpp
+fi
+if [ "${BACKEND:-dllama}" = "llamacpp" ]; then
+  ROOT_UNIT="${ROOT_UNIT:-llama-supervisor}"
+  WORKER_UNIT="llama-rpc"
+else
+  ROOT_UNIT="${ROOT_UNIT:-dllama-supervisor}"
+  WORKER_UNIT="dllama-worker"
+fi
 
 case "${1:-}" in
   up)
     echo "Starting workers..."
     for host in "${WORKERS[@]}"; do
-      ssh "pi@$host" "sudo systemctl start dllama-worker" || echo "warn: $host not started (supervisor will run without it)"
+      ssh "pi@$host" "sudo systemctl start $WORKER_UNIT" || echo "warn: $host not started (supervisor will run without it)"
     done
 
     sleep 2
@@ -34,7 +45,7 @@ case "${1:-}" in
 
     echo "Stopping workers..."
     for host in "${WORKERS[@]}"; do
-      ssh "pi@$host" "sudo systemctl stop dllama-worker" || true
+      ssh "pi@$host" "sudo systemctl stop $WORKER_UNIT" || true
     done
     ;;
 
@@ -47,7 +58,7 @@ case "${1:-}" in
   status)
     echo "=== ROOT ($ROOT_UNIT) ==="
     systemctl --no-pager status "$ROOT_UNIT" | head -n 8 || true
-    if [ "$ROOT_UNIT" = "dllama-supervisor" ]; then
+    if [ "$ROOT_UNIT" != "dllama-root" ]; then
       curl -s -m 2 http://127.0.0.1:9991/status \
         | python3 -c 'import json,sys; s=json.load(sys.stdin); print("cluster:", s["state"], "-", s["reason"]); print("active:", ", ".join(s["active_workers"]) or "root only")' \
         || echo "supervisor status endpoint not answering"
@@ -56,7 +67,7 @@ case "${1:-}" in
     for host in "${WORKERS[@]}"; do
       echo
       echo "=== $host ==="
-      ssh "pi@$host" "systemctl --no-pager status dllama-worker | head -n 8" || true
+      ssh "pi@$host" "systemctl --no-pager status $WORKER_UNIT | head -n 8" || true
     done
     ;;
 

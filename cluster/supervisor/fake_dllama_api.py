@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-fake_dllama_api.py - laptop stand-in for dllama-api, same flags. Sleeps
+fake_dllama_api.py - laptop stand-in for dllama-api (and llama-server), same flags. Sleeps
 FAKE_LOAD_SECONDS, retries forever while any worker is listed in FAKE_DEAD_FILE,
 then serves /v1/models and streaming /v1/chat/completions single-threaded.
 """
@@ -48,7 +48,14 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self) -> None:
-        if self.path == "/v1/models":
+        if self.path == "/health":  # llama-server's readiness endpoint
+            body = b'{"status":"ok"}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/v1/models":
             body = json.dumps(
                 {"object": "list", "data": [{"id": Path(self.model_path).name, "object": "model", "owned_by": "fake"}]}
             ).encode()
@@ -113,11 +120,19 @@ def main() -> int:
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=9990)
     ap.add_argument("--model", required=True)
-    ap.add_argument("--tokenizer", required=True)
+    ap.add_argument("--tokenizer", default="")
     ap.add_argument("--buffer-float-type", default="q80")
     ap.add_argument("--nthreads", type=int, default=4)
     ap.add_argument("--workers", nargs="*", default=[])
+    # llama-server spelling of the same things
+    ap.add_argument("--alias", default="")
+    ap.add_argument("--ctx-size", type=int, default=4096)
+    ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument("--parallel", type=int, default=1)
+    ap.add_argument("-ngl", type=int, default=0)
+    ap.add_argument("--rpc", default="")
     args = ap.parse_args()
+    args.workers += [r for r in args.rpc.split(",") if r]
 
     load = float(os.environ.get("FAKE_LOAD_SECONDS", "1.5"))
     retry = float(os.environ.get("FAKE_RETRY_SECONDS", "3"))
